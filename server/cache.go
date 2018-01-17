@@ -49,7 +49,7 @@ type clusterInfo struct {
 
 func newClusterInfo(id core.IDAllocator, opt *scheduleOption, kv *core.KV) *clusterInfo {
 	return &clusterInfo{
-		BasicCluster: schedule.NewBasicCluster(),
+		BasicCluster: schedule.NewBasicCluster(opt.simulating),
 		id:           id,
 		opt:          opt,
 		kv:           kv,

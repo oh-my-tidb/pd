@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap/pd/pkg/logutil"
 	"github.com/pingcap/pd/server"
 	"github.com/pingcap/pd/server/api"
-	"github.com/pingcap/pd/server/schedule"
 	log "github.com/sirupsen/logrus"
 	// Register schedulers.
 	_ "github.com/pingcap/pd/server/schedulers"
@@ -46,8 +45,8 @@ func main() {
 	simutil.InitLogger(*simLogLevel)
 	start := time.Now()
 
-	schedule.Simulating = true
-	_, local, clean := NewSingleServer()
+	cfg, local, clean := NewSingleServer()
+	cfg.Simulating = true
 	err := local.Run()
 	if err != nil {
 		simutil.Logger.Fatal("run server error:", err)
