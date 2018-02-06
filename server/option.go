@@ -25,9 +25,10 @@ import (
 
 // scheduleOption is a wrapper to access the configuration safely.
 type scheduleOption struct {
-	v   atomic.Value
-	rep *Replication
-	ns  map[string]*namespaceOption
+	v          atomic.Value
+	rep        *Replication
+	ns         map[string]*namespaceOption
+	simulating bool
 }
 
 func newScheduleOption(cfg *Config) *scheduleOption {
@@ -39,6 +40,7 @@ func newScheduleOption(cfg *Config) *scheduleOption {
 		o.ns[name] = newNamespaceOption(&nsCfg)
 	}
 	o.rep = newReplication(&cfg.Replication)
+	o.simulating = cfg.Simulating
 	return o
 }
 

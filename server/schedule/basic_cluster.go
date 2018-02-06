@@ -44,6 +44,7 @@ type BasicCluster struct {
 	Regions         *core.RegionsInfo
 	WriteStatistics cache.Cache
 	ReadStatistics  cache.Cache
+	Simulating      bool
 }
 
 // NewOpInfluence creates a OpInfluence.
@@ -84,12 +85,13 @@ type StoreInfluence struct {
 }
 
 // NewBasicCluster creates a BasicCluster.
-func NewBasicCluster() *BasicCluster {
+func NewBasicCluster(isSimulating bool) *BasicCluster {
 	return &BasicCluster{
 		Stores:          core.NewStoresInfo(),
 		Regions:         core.NewRegionsInfo(),
 		ReadStatistics:  cache.NewCache(statCacheMaxLen, cache.TwoQueueCache),
 		WriteStatistics: cache.NewCache(statCacheMaxLen, cache.TwoQueueCache),
+		Simulating:      isSimulating,
 	}
 }
 
@@ -204,7 +206,7 @@ func (bc *BasicCluster) PutRegion(region *core.RegionInfo) error {
 func (bc *BasicCluster) UpdateWriteStatus(region *core.RegionInfo) {
 	var WrittenBytesPerSec uint64
 	v, isExist := bc.WriteStatistics.Peek(region.GetId())
-	if isExist && !Simulating {
+	if isExist && !bc.Simulating { // When simulating, we can't calculate it using physical time.
 		interval := time.Since(v.(*core.RegionStat).LastUpdateTime).Seconds()
 		if interval < minHotRegionReportInterval {
 			return
@@ -267,7 +269,7 @@ func (bc *BasicCluster) UpdateWriteStatCache(region *core.RegionInfo, hotRegionT
 func (bc *BasicCluster) UpdateReadStatus(region *core.RegionInfo) {
 	var ReadBytesPerSec uint64
 	v, isExist := bc.ReadStatistics.Peek(region.GetId())
-	if isExist && !Simulating { // When simulating, we can't calculate it using physical time.
+	if isExist && !bc.Simulating { // When simulating, we can't calculate it using physical time.
 		interval := time.Now().Sub(v.(*core.RegionStat).LastUpdateTime).Seconds()
 		if interval < minHotRegionReportInterval {
 			return

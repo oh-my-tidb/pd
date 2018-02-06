@@ -35,7 +35,7 @@ type mockCluster struct {
 // NewMockCluster creates a new mockCluster
 func newMockCluster(opt *MockSchedulerOptions) *mockCluster {
 	return &mockCluster{
-		BasicCluster:         schedule.NewBasicCluster(),
+		BasicCluster:         schedule.NewBasicCluster(false),
 		id:                   core.NewMockIDAllocator(),
 		MockSchedulerOptions: opt,
 	}

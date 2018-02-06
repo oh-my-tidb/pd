@@ -103,6 +103,10 @@ type Config struct {
 	disableStrictReconfigCheck bool
 
 	heartbeatStreamBindInterval typeutil.Duration
+
+	// Simulating is an option to overpass the impact of accelerated time. Should
+	// only turned on by the simulator.
+	Simulating bool
 }
 
 // NewConfig creates a new config.
