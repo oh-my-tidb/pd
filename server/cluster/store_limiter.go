@@ -18,8 +18,8 @@ import (
 
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/config2"
-	"github.com/tikv/pd/server/schedule/opt"
 	"github.com/tikv/pd/server/schedule/storelimit"
 	"go.uber.org/zap"
 )
@@ -27,14 +27,14 @@ import (
 // StoreLimiter adjust the store limit dynamically
 type StoreLimiter struct {
 	m       sync.RWMutex
-	opt     opt.Options
+	opt     *config.PersistOptions
 	scene   map[config2.StoreLimitType]*storelimit.Scene
 	state   *State
 	current LoadState
 }
 
 // NewStoreLimiter builds a store limiter object using the operator controller
-func NewStoreLimiter(opt opt.Options) *StoreLimiter {
+func NewStoreLimiter(opt *config.PersistOptions) *StoreLimiter {
 	defaultScene := map[config2.StoreLimitType]*storelimit.Scene{
 		config2.AddPeer:    storelimit.DefaultScene(config2.AddPeer),
 		config2.RemovePeer: storelimit.DefaultScene(config2.RemovePeer),
