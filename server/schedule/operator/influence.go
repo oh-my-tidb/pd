@@ -14,6 +14,7 @@
 package operator
 
 import (
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/storelimit"
 )
@@ -39,7 +40,7 @@ type StoreInfluence struct {
 	RegionCount int64
 	LeaderSize  int64
 	LeaderCount int64
-	StepCost    map[storelimit.Type]int64
+	StepCost    map[config2.StoreLimitType]int64
 }
 
 // ResourceProperty returns delta size of leader/region by influence.
@@ -62,22 +63,22 @@ func (s StoreInfluence) ResourceProperty(kind core.ScheduleKind) int64 {
 }
 
 // GetStepCost returns the specific type step cost
-func (s StoreInfluence) GetStepCost(limitType storelimit.Type) int64 {
+func (s StoreInfluence) GetStepCost(limitType config2.StoreLimitType) int64 {
 	if s.StepCost == nil {
 		return 0
 	}
 	return s.StepCost[limitType]
 }
 
-func (s *StoreInfluence) addStepCost(limitType storelimit.Type, cost int64) {
+func (s *StoreInfluence) addStepCost(limitType config2.StoreLimitType, cost int64) {
 	if s.StepCost == nil {
-		s.StepCost = make(map[storelimit.Type]int64)
+		s.StepCost = make(map[config2.StoreLimitType]int64)
 	}
 	s.StepCost[limitType] += cost
 }
 
 // AdjustStepCost adjusts the step cost of specific type store limit according to region size
-func (s *StoreInfluence) AdjustStepCost(limitType storelimit.Type, regionSize int64) {
+func (s *StoreInfluence) AdjustStepCost(limitType config2.StoreLimitType, regionSize int64) {
 	if regionSize > storelimit.SmallRegionThreshold {
 		s.addStepCost(limitType, storelimit.RegionInfluence[limitType])
 	} else if regionSize <= storelimit.SmallRegionThreshold && regionSize > core.EmptyRegionApproximateSize {

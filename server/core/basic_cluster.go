@@ -21,7 +21,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/slice"
-	"github.com/tikv/pd/server/schedule/storelimit"
+	"github.com/tikv/pd/server/config2"
 	"go.uber.org/zap"
 )
 
@@ -146,7 +146,7 @@ func (bc *BasicCluster) ResumeLeaderTransfer(storeID uint64) {
 }
 
 // AttachAvailableFunc attaches an available function to a specific store.
-func (bc *BasicCluster) AttachAvailableFunc(storeID uint64, limitType storelimit.Type, f func() bool) {
+func (bc *BasicCluster) AttachAvailableFunc(storeID uint64, limitType config2.StoreLimitType, f func() bool) {
 	bc.Lock()
 	defer bc.Unlock()
 	bc.Stores.AttachAvailableFunc(storeID, limitType, f)
@@ -402,7 +402,7 @@ type StoreSetController interface {
 	PauseLeaderTransfer(id uint64) error
 	ResumeLeaderTransfer(id uint64)
 
-	AttachAvailableFunc(id uint64, limitType storelimit.Type, f func() bool)
+	AttachAvailableFunc(id uint64, limitType config2.StoreLimitType, f func() bool)
 }
 
 // KeyRange is a key range.

@@ -28,10 +28,10 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockcluster"
 	"github.com/tikv/pd/pkg/mock/mockhbstream"
 	"github.com/tikv/pd/pkg/mock/mockoption"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/checker"
 	"github.com/tikv/pd/server/schedule/operator"
-	"github.com/tikv/pd/server/schedule/storelimit"
 )
 
 func Test(t *testing.T) {
@@ -348,7 +348,7 @@ func (t *testOperatorControllerSuite) TestStoreLimit(c *C) {
 		tc.AddLeaderRegion(i, i)
 	}
 
-	tc.SetStoreLimit(2, storelimit.AddPeer, 60)
+	tc.SetStoreLimit(2, config2.AddPeer, 60)
 	for i := uint64(1); i <= 5; i++ {
 		op := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
 		c.Assert(oc.AddOperator(op), IsTrue)
@@ -358,13 +358,13 @@ func (t *testOperatorControllerSuite) TestStoreLimit(c *C) {
 	c.Assert(oc.AddOperator(op), IsFalse)
 	c.Assert(oc.RemoveOperator(op), IsFalse)
 
-	tc.SetStoreLimit(2, storelimit.AddPeer, 120)
+	tc.SetStoreLimit(2, config2.AddPeer, 120)
 	for i := uint64(1); i <= 10; i++ {
 		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
 		c.Assert(oc.AddOperator(op), IsTrue)
 		checkRemoveOperatorSuccess(c, oc, op)
 	}
-	tc.SetAllStoresLimit(storelimit.AddPeer, 60)
+	tc.SetAllStoresLimit(config2.AddPeer, 60)
 	for i := uint64(1); i <= 5; i++ {
 		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: 2, PeerID: i})
 		c.Assert(oc.AddOperator(op), IsTrue)
@@ -374,7 +374,7 @@ func (t *testOperatorControllerSuite) TestStoreLimit(c *C) {
 	c.Assert(oc.AddOperator(op), IsFalse)
 	c.Assert(oc.RemoveOperator(op), IsFalse)
 
-	tc.SetStoreLimit(2, storelimit.RemovePeer, 60)
+	tc.SetStoreLimit(2, config2.RemovePeer, 60)
 	for i := uint64(1); i <= 5; i++ {
 		op := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{}, operator.OpRegion, operator.RemovePeer{FromStore: 2})
 		c.Assert(oc.AddOperator(op), IsTrue)
@@ -384,13 +384,13 @@ func (t *testOperatorControllerSuite) TestStoreLimit(c *C) {
 	c.Assert(oc.AddOperator(op), IsFalse)
 	c.Assert(oc.RemoveOperator(op), IsFalse)
 
-	tc.SetStoreLimit(2, storelimit.RemovePeer, 120)
+	tc.SetStoreLimit(2, config2.RemovePeer, 120)
 	for i := uint64(1); i <= 10; i++ {
 		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.RemovePeer{FromStore: 2})
 		c.Assert(oc.AddOperator(op), IsTrue)
 		checkRemoveOperatorSuccess(c, oc, op)
 	}
-	tc.SetAllStoresLimit(storelimit.RemovePeer, 60)
+	tc.SetAllStoresLimit(config2.RemovePeer, 60)
 	for i := uint64(1); i <= 5; i++ {
 		op = operator.NewOperator("test", "test", i, &metapb.RegionEpoch{}, operator.OpRegion, operator.RemovePeer{FromStore: 2})
 		c.Assert(oc.AddOperator(op), IsTrue)

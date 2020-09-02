@@ -23,10 +23,10 @@ import (
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"github.com/tikv/pd/pkg/mock/mockoption"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	"github.com/tikv/pd/server/schedule/placement"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"github.com/tikv/pd/server/statistics"
 	"github.com/tikv/pd/server/versioninfo"
 	"go.uber.org/zap"
@@ -207,8 +207,8 @@ func (mc *Cluster) AddLeaderStore(storeID uint64, leaderCount int, leaderSizes .
 		core.SetLeaderSize(leaderSize),
 		core.SetLastHeartbeatTS(time.Now()),
 	)
-	mc.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	mc.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	mc.SetStoreLimit(storeID, config2.AddPeer, 60)
+	mc.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	mc.PutStore(store)
 }
 
@@ -229,8 +229,8 @@ func (mc *Cluster) AddRegionStore(storeID uint64, regionCount int) {
 		core.SetRegionSize(int64(regionCount)*10),
 		core.SetLastHeartbeatTS(time.Now()),
 	)
-	mc.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	mc.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	mc.SetStoreLimit(storeID, config2.AddPeer, 60)
+	mc.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	mc.PutStore(store)
 }
 
@@ -266,8 +266,8 @@ func (mc *Cluster) AddLabelsStore(storeID uint64, regionCount int, labels map[st
 		core.SetRegionSize(int64(regionCount)*10),
 		core.SetLastHeartbeatTS(time.Now()),
 	)
-	mc.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	mc.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	mc.SetStoreLimit(storeID, config2.AddPeer, 60)
+	mc.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	mc.PutStore(store)
 }
 
@@ -563,7 +563,7 @@ func (mc *Cluster) GetMaxReplicas() int {
 }
 
 // GetStoreLimitByType mocks method.
-func (mc *Cluster) GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64 {
+func (mc *Cluster) GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64 {
 	return mc.ScheduleOptions.GetStoreLimitByType(storeID, typ)
 }
 

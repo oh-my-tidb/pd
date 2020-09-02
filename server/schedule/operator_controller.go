@@ -28,6 +28,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/cache"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedule/opt"
@@ -62,7 +63,7 @@ type OperatorController struct {
 	histories       *list.List
 	counts          map[operator.OpKind]uint64
 	opRecords       *OperatorRecords
-	storesLimit     map[uint64]map[storelimit.Type]*storelimit.StoreLimit
+	storesLimit     map[uint64]map[config2.StoreLimitType]*storelimit.StoreLimit
 	wop             WaitingOperator
 	wopStatus       *WaitingOperatorStatus
 	opNotifierQueue operatorQueue
@@ -78,7 +79,7 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams o
 		histories:       list.New(),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
-		storesLimit:     make(map[uint64]map[storelimit.Type]*storelimit.StoreLimit),
+		storesLimit:     make(map[uint64]map[config2.StoreLimitType]*storelimit.StoreLimit),
 		wop:             NewRandBuckets(),
 		wopStatus:       NewWaitingOperatorStatus(),
 		opNotifierQueue: make(operatorQueue, 0),
@@ -451,7 +452,7 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 		if oc.storesLimit[storeID] == nil {
 			continue
 		}
-		for n, v := range storelimit.TypeNameValue {
+		for n, v := range config2.LimitTypeValue {
 			storeLimit := oc.storesLimit[storeID][v]
 			if storeLimit == nil {
 				continue
@@ -881,7 +882,7 @@ func (o *OperatorRecords) Put(op *operator.Operator) {
 func (oc *OperatorController) exceedStoreLimit(ops ...*operator.Operator) bool {
 	opInfluence := NewTotalOpInfluence(ops, oc.cluster)
 	for storeID := range opInfluence.StoresInfluence {
-		for _, v := range storelimit.TypeNameValue {
+		for _, v := range config2.LimitTypeValue {
 			stepCost := opInfluence.GetStoreInfluence(storeID).GetStepCost(v)
 			if stepCost == 0 {
 				continue
@@ -895,16 +896,16 @@ func (oc *OperatorController) exceedStoreLimit(ops ...*operator.Operator) bool {
 }
 
 // newStoreLimit is used to create the limit of a store.
-func (oc *OperatorController) newStoreLimit(storeID uint64, ratePerSec float64, limitType storelimit.Type) {
+func (oc *OperatorController) newStoreLimit(storeID uint64, ratePerSec float64, limitType config2.StoreLimitType) {
 	log.Info("create or update a store limit", zap.Uint64("store-id", storeID), zap.String("type", limitType.String()), zap.Float64("rate", ratePerSec))
 	if oc.storesLimit[storeID] == nil {
-		oc.storesLimit[storeID] = make(map[storelimit.Type]*storelimit.StoreLimit)
+		oc.storesLimit[storeID] = make(map[config2.StoreLimitType]*storelimit.StoreLimit)
 	}
 	oc.storesLimit[storeID][limitType] = storelimit.NewStoreLimit(ratePerSec, storelimit.RegionInfluence[limitType])
 }
 
 // getOrCreateStoreLimit is used to get or create the limit of a store.
-func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType storelimit.Type) *storelimit.StoreLimit {
+func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType config2.StoreLimitType) *storelimit.StoreLimit {
 	if oc.storesLimit[storeID][limitType] == nil {
 		ratePerSec := oc.cluster.GetStoreLimitByType(storeID, limitType) / StoreBalanceBaseTime
 		oc.newStoreLimit(storeID, ratePerSec, limitType)
@@ -944,7 +945,7 @@ func (oc *OperatorController) CollectStoreLimitMetrics() {
 		if store != nil {
 			storeID := store.GetID()
 			storeIDStr := strconv.FormatUint(storeID, 10)
-			for n, v := range storelimit.TypeNameValue {
+			for n, v := range config2.LimitTypeValue {
 				var storeLimit *storelimit.StoreLimit
 				if oc.storesLimit[storeID] == nil || oc.storesLimit[storeID][v] == nil {
 					// Set to 0 to represent the store limit of the specific type is not initialized.

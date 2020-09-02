@@ -27,8 +27,8 @@ import (
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"github.com/unrolled/render"
 )
 
@@ -618,7 +618,7 @@ func (filter *storeStateFilter) filter(stores []*metapb.Store) []*metapb.Store {
 	return ret
 }
 
-func getStoreLimitType(input map[string]interface{}) ([]storelimit.Type, error) {
+func getStoreLimitType(input map[string]interface{}) ([]config2.StoreLimitType, error) {
 	typeNameIface, ok := input["type"]
 	var err error
 	if ok {
@@ -628,17 +628,17 @@ func getStoreLimitType(input map[string]interface{}) ([]storelimit.Type, error) 
 			return nil, err
 		}
 		typ, err := parseStoreLimitType(typeName)
-		return []storelimit.Type{typ}, err
+		return []config2.StoreLimitType{typ}, err
 	}
 
-	return []storelimit.Type{storelimit.AddPeer, storelimit.RemovePeer}, err
+	return []config2.StoreLimitType{config2.AddPeer, config2.RemovePeer}, err
 }
 
-func parseStoreLimitType(typeName string) (storelimit.Type, error) {
-	typeValue := storelimit.AddPeer
+func parseStoreLimitType(typeName string) (config2.StoreLimitType, error) {
+	typeValue := config2.AddPeer
 	var err error
 	if typeName != "" {
-		if value, ok := storelimit.TypeNameValue[typeName]; ok {
+		if value, ok := config2.LimitTypeValue[typeName]; ok {
 			typeValue = value
 		} else {
 			err = errors.New("unknown type")

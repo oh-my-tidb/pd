@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
-	"github.com/tikv/pd/server/schedule/storelimit"
 )
 
 const (
@@ -130,20 +130,20 @@ func NewScheduleOptions() *ScheduleOptions {
 }
 
 // SetStoreLimit mocks method
-func (mso *ScheduleOptions) SetStoreLimit(storeID uint64, typ storelimit.Type, ratePerMin float64) {
+func (mso *ScheduleOptions) SetStoreLimit(storeID uint64, typ config2.StoreLimitType, ratePerMin float64) {
 	var sc StoreLimitConfig
 	if _, ok := mso.StoreLimit[storeID]; ok {
 		switch typ {
-		case storelimit.AddPeer:
+		case config2.AddPeer:
 			sc = StoreLimitConfig{AddPeer: ratePerMin, RemovePeer: mso.StoreLimit[storeID].RemovePeer}
-		case storelimit.RemovePeer:
+		case config2.RemovePeer:
 			sc = StoreLimitConfig{AddPeer: mso.StoreLimit[storeID].AddPeer, RemovePeer: ratePerMin}
 		}
 	} else {
 		switch typ {
-		case storelimit.AddPeer:
+		case config2.AddPeer:
 			sc = StoreLimitConfig{AddPeer: ratePerMin, RemovePeer: defaultStoreLimit}
-		case storelimit.RemovePeer:
+		case config2.RemovePeer:
 			sc = StoreLimitConfig{AddPeer: defaultStoreLimit, RemovePeer: ratePerMin}
 		}
 	}
@@ -152,14 +152,14 @@ func (mso *ScheduleOptions) SetStoreLimit(storeID uint64, typ storelimit.Type, r
 }
 
 // SetAllStoresLimit mocks method
-func (mso *ScheduleOptions) SetAllStoresLimit(typ storelimit.Type, ratePerMin float64) {
+func (mso *ScheduleOptions) SetAllStoresLimit(typ config2.StoreLimitType, ratePerMin float64) {
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		for storeID := range mso.StoreLimit {
 			sc := StoreLimitConfig{AddPeer: ratePerMin, RemovePeer: mso.StoreLimit[storeID].RemovePeer}
 			mso.StoreLimit[storeID] = sc
 		}
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		for storeID := range mso.StoreLimit {
 			sc := StoreLimitConfig{AddPeer: mso.StoreLimit[storeID].AddPeer, RemovePeer: ratePerMin}
 			mso.StoreLimit[storeID] = sc
@@ -193,15 +193,15 @@ func (mso *ScheduleOptions) GetHotRegionScheduleLimit() uint64 {
 }
 
 // GetStoreLimitByType mocks method
-func (mso *ScheduleOptions) GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64 {
+func (mso *ScheduleOptions) GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64 {
 	limit, ok := mso.StoreLimit[storeID]
 	if !ok {
 		return 0
 	}
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		return limit.AddPeer
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		return limit.RemovePeer
 	default:
 		panic("no such limit type")

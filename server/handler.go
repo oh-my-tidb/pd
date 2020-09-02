@@ -31,6 +31,7 @@ import (
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/server/cluster"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule"
 	"github.com/tikv/pd/server/schedule/operator"
@@ -411,7 +412,7 @@ func (h *Handler) GetHistory(start time.Time) ([]operator.OpHistory, error) {
 }
 
 // SetAllStoresLimit is used to set limit of all stores.
-func (h *Handler) SetAllStoresLimit(ratePerMin float64, limitType storelimit.Type) error {
+func (h *Handler) SetAllStoresLimit(ratePerMin float64, limitType config2.StoreLimitType) error {
 	c, err := h.GetRaftCluster()
 	if err != nil {
 		return err
@@ -421,7 +422,7 @@ func (h *Handler) SetAllStoresLimit(ratePerMin float64, limitType storelimit.Typ
 }
 
 // GetAllStoresLimit is used to get limit of all stores.
-func (h *Handler) GetAllStoresLimit(limitType storelimit.Type) (map[uint64]config.StoreLimitConfig, error) {
+func (h *Handler) GetAllStoresLimit(limitType config2.StoreLimitType) (map[uint64]config.StoreLimitConfig, error) {
 	c, err := h.GetRaftCluster()
 	if err != nil {
 		return nil, err
@@ -430,7 +431,7 @@ func (h *Handler) GetAllStoresLimit(limitType storelimit.Type) (map[uint64]confi
 }
 
 // SetStoreLimit is used to set the limit of a store.
-func (h *Handler) SetStoreLimit(storeID uint64, ratePerMin float64, limitType storelimit.Type) error {
+func (h *Handler) SetStoreLimit(storeID uint64, ratePerMin float64, limitType config2.StoreLimitType) error {
 	c, err := h.GetRaftCluster()
 	if err != nil {
 		return err
@@ -834,13 +835,13 @@ func (h *Handler) ResetTS(ts uint64) error {
 }
 
 // SetStoreLimitScene sets the limit values for different scenes
-func (h *Handler) SetStoreLimitScene(scene *storelimit.Scene, limitType storelimit.Type) {
+func (h *Handler) SetStoreLimitScene(scene *storelimit.Scene, limitType config2.StoreLimitType) {
 	cluster := h.s.GetRaftCluster()
 	cluster.GetStoreLimiter().ReplaceStoreLimitScene(scene, limitType)
 }
 
 // GetStoreLimitScene returns the limit values for different scenes
-func (h *Handler) GetStoreLimitScene(limitType storelimit.Type) *storelimit.Scene {
+func (h *Handler) GetStoreLimitScene(limitType config2.StoreLimitType) *storelimit.Scene {
 	cluster := h.s.GetRaftCluster()
 	return cluster.GetStoreLimiter().StoreLimitScene(limitType)
 }

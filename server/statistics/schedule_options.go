@@ -16,8 +16,8 @@ package statistics
 import (
 	"time"
 
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
-	"github.com/tikv/pd/server/schedule/storelimit"
 )
 
 // ScheduleOptions is an interface to access configurations.
@@ -29,7 +29,7 @@ type ScheduleOptions interface {
 	GetLowSpaceRatio() float64
 	GetHighSpaceRatio() float64
 	GetTolerantSizeRatio() float64
-	GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64
+	GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64
 
 	GetSchedulerMaxWaitingOperator() uint64
 	GetLeaderScheduleLimit() uint64

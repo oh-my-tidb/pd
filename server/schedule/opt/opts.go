@@ -18,9 +18,9 @@ import (
 
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"github.com/tikv/pd/server/statistics"
 	"github.com/tikv/pd/server/versioninfo"
 )
@@ -34,8 +34,8 @@ type Options interface {
 	GetHotRegionScheduleLimit() uint64
 
 	// store limit
-	GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64
-	SetAllStoresLimit(typ storelimit.Type, ratePerMin float64)
+	GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64
+	SetAllStoresLimit(typ config2.StoreLimitType, ratePerMin float64)
 
 	GetMaxSnapshotCount() uint64
 	GetMaxPendingPeerCount() uint64

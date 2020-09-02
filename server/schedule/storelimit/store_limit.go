@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/juju/ratelimit"
+	"github.com/tikv/pd/server/config2"
 )
 
 const (
@@ -27,42 +28,16 @@ const (
 )
 
 // RegionInfluence represents the influence of a operator step, which is used by store limit.
-var RegionInfluence = map[Type]int64{
-	AddPeer:    1000,
-	RemovePeer: 1000,
+var RegionInfluence = map[config2.StoreLimitType]int64{
+	config2.AddPeer:    1000,
+	config2.RemovePeer: 1000,
 }
 
 // SmallRegionInfluence represents the influence of a operator step
 // when the region size is smaller than smallRegionThreshold, which is used by store limit.
-var SmallRegionInfluence = map[Type]int64{
-	AddPeer:    200,
-	RemovePeer: 200,
-}
-
-// Type indicates the type of store limit
-type Type int
-
-const (
-	// AddPeer indicates the type of store limit that limits the adding peer rate
-	AddPeer Type = iota
-	// RemovePeer indicates the type of store limit that limits the removing peer rate
-	RemovePeer
-)
-
-// TypeNameValue indicates the name of store limit type and the enum value
-var TypeNameValue = map[string]Type{
-	"add-peer":    AddPeer,
-	"remove-peer": RemovePeer,
-}
-
-// String returns the representation of the Type
-func (t Type) String() string {
-	for n, v := range TypeNameValue {
-		if v == t {
-			return n
-		}
-	}
-	return ""
+var SmallRegionInfluence = map[config2.StoreLimitType]int64{
+	config2.AddPeer:    200,
+	config2.RemovePeer: 200,
 }
 
 // StoreLimit limits the operators of a store

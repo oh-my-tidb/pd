@@ -37,6 +37,7 @@ import (
 	"github.com/tikv/pd/pkg/logutil"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/id"
 	syncer "github.com/tikv/pd/server/region_syncer"
@@ -1010,7 +1011,7 @@ func (c *RaftCluster) RemoveStore(storeID uint64) error {
 		zap.String("store-address", newStore.GetAddress()))
 	err := c.putStoreLocked(newStore)
 	if err == nil {
-		c.SetStoreLimit(storeID, storelimit.RemovePeer, storelimit.Unlimited)
+		c.SetStoreLimit(storeID, config2.RemovePeer, storelimit.Unlimited)
 	}
 	return err
 }
@@ -1064,7 +1065,7 @@ func (c *RaftCluster) ResumeLeaderTransfer(storeID uint64) {
 }
 
 // AttachAvailableFunc attaches an available function to a specific store.
-func (c *RaftCluster) AttachAvailableFunc(storeID uint64, limitType storelimit.Type, f func() bool) {
+func (c *RaftCluster) AttachAvailableFunc(storeID uint64, limitType config2.StoreLimitType, f func() bool) {
 	c.core.AttachAvailableFunc(storeID, limitType, f)
 }
 
@@ -1740,7 +1741,7 @@ func (c *RaftCluster) GetStoreLimiter() *StoreLimiter {
 }
 
 // GetStoreLimitByType returns the store limit for a given store ID and type.
-func (c *RaftCluster) GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64 {
+func (c *RaftCluster) GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64 {
 	return c.opt.GetStoreLimitByType(storeID, typ)
 }
 
@@ -1753,13 +1754,13 @@ func (c *RaftCluster) GetAllStoresLimit() map[uint64]config.StoreLimitConfig {
 func (c *RaftCluster) AddStoreLimit(store *metapb.Store) {
 	cfg := c.opt.GetScheduleConfig().Clone()
 	sc := config.StoreLimitConfig{
-		AddPeer:    config.DefaultStoreLimit.GetDefaultStoreLimit(storelimit.AddPeer),
-		RemovePeer: config.DefaultStoreLimit.GetDefaultStoreLimit(storelimit.RemovePeer),
+		AddPeer:    config.DefaultStoreLimit.GetDefaultStoreLimit(config2.AddPeer),
+		RemovePeer: config.DefaultStoreLimit.GetDefaultStoreLimit(config2.RemovePeer),
 	}
 	if core.IsTiFlashStore(store) {
 		sc = config.StoreLimitConfig{
-			AddPeer:    config.DefaultTiFlashStoreLimit.GetDefaultStoreLimit(storelimit.AddPeer),
-			RemovePeer: config.DefaultTiFlashStoreLimit.GetDefaultStoreLimit(storelimit.RemovePeer),
+			AddPeer:    config.DefaultTiFlashStoreLimit.GetDefaultStoreLimit(config2.AddPeer),
+			RemovePeer: config.DefaultTiFlashStoreLimit.GetDefaultStoreLimit(config2.RemovePeer),
 		}
 	}
 	storeID := store.GetId()
@@ -1770,7 +1771,7 @@ func (c *RaftCluster) AddStoreLimit(store *metapb.Store) {
 // RemoveStoreLimit remove a store limit for a given store ID.
 func (c *RaftCluster) RemoveStoreLimit(storeID uint64) {
 	cfg := c.opt.GetScheduleConfig().Clone()
-	for _, limitType := range storelimit.TypeNameValue {
+	for _, limitType := range config2.LimitTypeValue {
 		c.AttachAvailableFunc(storeID, limitType, nil)
 	}
 	delete(cfg.StoreLimit, storeID)
@@ -1778,12 +1779,12 @@ func (c *RaftCluster) RemoveStoreLimit(storeID uint64) {
 }
 
 // SetStoreLimit sets a store limit for a given type and rate.
-func (c *RaftCluster) SetStoreLimit(storeID uint64, typ storelimit.Type, ratePerMin float64) {
+func (c *RaftCluster) SetStoreLimit(storeID uint64, typ config2.StoreLimitType, ratePerMin float64) {
 	c.opt.SetStoreLimit(storeID, typ, ratePerMin)
 }
 
 // SetAllStoresLimit sets all store limit for a given type and rate.
-func (c *RaftCluster) SetAllStoresLimit(typ storelimit.Type, ratePerMin float64) {
+func (c *RaftCluster) SetAllStoresLimit(typ config2.StoreLimitType, ratePerMin float64) {
 	c.opt.SetAllStoresLimit(typ, ratePerMin)
 }
 

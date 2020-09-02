@@ -29,12 +29,12 @@ import (
 	"github.com/tikv/pd/pkg/testutil"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	"github.com/tikv/pd/server/schedule"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedule/opt"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"github.com/tikv/pd/server/schedulers"
 	"github.com/tikv/pd/server/statistics"
 )
@@ -69,8 +69,8 @@ func (c *testCluster) addRegionStore(storeID uint64, regionCount int, regionSize
 		core.SetLastHeartbeatTS(time.Now()),
 	)
 
-	c.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	c.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	c.SetStoreLimit(storeID, config2.AddPeer, 60)
+	c.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	c.Lock()
 	defer c.Unlock()
 	return c.putStoreLocked(newStore)
@@ -108,8 +108,8 @@ func (c *testCluster) addLeaderStore(storeID uint64, leaderCount int) error {
 		core.SetLastHeartbeatTS(time.Now()),
 	)
 
-	c.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	c.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	c.SetStoreLimit(storeID, config2.AddPeer, 60)
+	c.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	c.Lock()
 	defer c.Unlock()
 	return c.putStoreLocked(newStore)
@@ -932,8 +932,8 @@ func (s *testOperatorControllerSuite) TestStoreOverloaded(c *C) {
 
 	// reset all stores' limit
 	// scheduling one time needs 1/10 seconds
-	opt.SetAllStoresLimit(storelimit.AddPeer, 600)
-	opt.SetAllStoresLimit(storelimit.RemovePeer, 600)
+	opt.SetAllStoresLimit(config2.AddPeer, 600)
+	opt.SetAllStoresLimit(config2.RemovePeer, 600)
 	time.Sleep(1 * time.Second)
 	for i := 0; i < 10; i++ {
 		op1 := lb.Schedule(tc)[0]

@@ -17,6 +17,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/tikv/pd/pkg/mock/mockoption"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/schedule/storelimit"
 )
 
@@ -40,18 +41,18 @@ func (s *testStoreLimiterSuite) TestCollect(c *C) {
 
 func (s *testStoreLimiterSuite) TestStoreLimitScene(c *C) {
 	limiter := NewStoreLimiter(s.opt)
-	c.Assert(limiter.scene[storelimit.AddPeer], DeepEquals, storelimit.DefaultScene(storelimit.AddPeer))
-	c.Assert(limiter.scene[storelimit.RemovePeer], DeepEquals, storelimit.DefaultScene(storelimit.RemovePeer))
+	c.Assert(limiter.scene[config2.AddPeer], DeepEquals, storelimit.DefaultScene(config2.AddPeer))
+	c.Assert(limiter.scene[config2.RemovePeer], DeepEquals, storelimit.DefaultScene(config2.RemovePeer))
 }
 
 func (s *testStoreLimiterSuite) TestReplaceStoreLimitScene(c *C) {
 	limiter := NewStoreLimiter(s.opt)
 
 	sceneAddPeer := &storelimit.Scene{Idle: 4, Low: 3, Normal: 2, High: 1}
-	limiter.ReplaceStoreLimitScene(sceneAddPeer, storelimit.AddPeer)
+	limiter.ReplaceStoreLimitScene(sceneAddPeer, config2.AddPeer)
 
-	c.Assert(limiter.scene[storelimit.AddPeer], DeepEquals, sceneAddPeer)
+	c.Assert(limiter.scene[config2.AddPeer], DeepEquals, sceneAddPeer)
 
 	sceneRemovePeer := &storelimit.Scene{Idle: 5, Low: 4, Normal: 3, High: 2}
-	limiter.ReplaceStoreLimitScene(sceneRemovePeer, storelimit.RemovePeer)
+	limiter.ReplaceStoreLimitScene(sceneRemovePeer, config2.RemovePeer)
 }

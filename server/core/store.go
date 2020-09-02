@@ -24,7 +24,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
-	"github.com/tikv/pd/server/schedule/storelimit"
+	"github.com/tikv/pd/server/config2"
 	"go.uber.org/zap"
 )
 
@@ -47,7 +47,7 @@ type StoreInfo struct {
 	lastPersistTime     time.Time
 	leaderWeight        float64
 	regionWeight        float64
-	available           map[storelimit.Type]func() bool
+	available           map[config2.StoreLimitType]func() bool
 }
 
 // NewStoreInfo creates StoreInfo with meta data.
@@ -118,7 +118,7 @@ func (s *StoreInfo) AllowLeaderTransfer() bool {
 }
 
 // IsAvailable returns if the store bucket of limitation is available
-func (s *StoreInfo) IsAvailable(limitType storelimit.Type) bool {
+func (s *StoreInfo) IsAvailable(limitType config2.StoreLimitType) bool {
 	if s.available != nil && s.available[limitType] != nil {
 		return s.available[limitType]()
 	}
@@ -587,7 +587,7 @@ func (s *StoresInfo) ResumeLeaderTransfer(storeID uint64) {
 }
 
 // AttachAvailableFunc attaches f to a specific store.
-func (s *StoresInfo) AttachAvailableFunc(storeID uint64, limitType storelimit.Type, f func() bool) {
+func (s *StoresInfo) AttachAvailableFunc(storeID uint64, limitType config2.StoreLimitType, f func() bool) {
 	if store, ok := s.stores[storeID]; ok {
 		s.stores[storeID] = store.Clone(AttachAvailableFunc(limitType, f))
 	}

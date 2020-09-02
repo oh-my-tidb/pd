@@ -29,8 +29,7 @@ import (
 	"github.com/tikv/pd/pkg/grpcutil"
 	"github.com/tikv/pd/pkg/metricutil"
 	"github.com/tikv/pd/pkg/typeutil"
-	"github.com/tikv/pd/server/schedule"
-	"github.com/tikv/pd/server/schedule/storelimit"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/versioninfo"
 
 	"github.com/BurntSushi/toml"
@@ -249,25 +248,25 @@ type StoreLimit struct {
 }
 
 // SetDefaultStoreLimit sets the default store limit for a given type.
-func (sl *StoreLimit) SetDefaultStoreLimit(typ storelimit.Type, ratePerMin float64) {
+func (sl *StoreLimit) SetDefaultStoreLimit(typ config2.StoreLimitType, ratePerMin float64) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		sl.AddPeer = ratePerMin
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		sl.RemovePeer = ratePerMin
 	}
 }
 
 // GetDefaultStoreLimit gets the default store limit for a given type.
-func (sl *StoreLimit) GetDefaultStoreLimit(typ storelimit.Type) float64 {
+func (sl *StoreLimit) GetDefaultStoreLimit(typ config2.StoreLimitType) float64 {
 	sl.mu.RLock()
 	defer sl.mu.RUnlock()
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		return sl.AddPeer
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		return sl.RemovePeer
 	default:
 		panic("invalid type")
@@ -875,7 +874,7 @@ func (c *ScheduleConfig) Validate() error {
 		return errors.New("low-space-ratio should be larger than high-space-ratio")
 	}
 	for _, scheduleConfig := range c.Schedulers {
-		if !schedule.IsSchedulerRegistered(scheduleConfig.Type) {
+		if !config2.IsSchedulerRegistered(scheduleConfig.Type) {
 			return errors.Errorf("create func of %v is not registered, maybe misspelled", scheduleConfig.Type)
 		}
 	}

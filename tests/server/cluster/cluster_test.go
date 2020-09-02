@@ -33,6 +33,7 @@ import (
 	"github.com/tikv/pd/server"
 	"github.com/tikv/pd/server/cluster"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	syncer "github.com/tikv/pd/server/region_syncer"
@@ -226,7 +227,7 @@ func resetStoreState(c *C, rc *cluster.RaftCluster, storeID uint64, state metapb
 	newStore := store.Clone(core.SetStoreState(state))
 	rc.GetCacheCluster().PutStore(newStore)
 	if state == metapb.StoreState_Offline {
-		rc.SetStoreLimit(storeID, storelimit.RemovePeer, storelimit.Unlimited)
+		rc.SetStoreLimit(storeID, config2.RemovePeer, storelimit.Unlimited)
 	} else if state == metapb.StoreState_Tombstone {
 		rc.RemoveStoreLimit(storeID)
 	}
@@ -236,8 +237,8 @@ func testStateAndLimit(c *C, clusterID uint64, rc *cluster.RaftCluster, grpcPDCl
 	// prepare
 	storeID := store.GetId()
 	oc := rc.GetOperatorController()
-	rc.SetStoreLimit(storeID, storelimit.AddPeer, 60)
-	rc.SetStoreLimit(storeID, storelimit.RemovePeer, 60)
+	rc.SetStoreLimit(storeID, config2.AddPeer, 60)
+	rc.SetStoreLimit(storeID, config2.RemovePeer, 60)
 	op := operator.NewOperator("test", "test", 2, &metapb.RegionEpoch{}, operator.OpRegion, operator.AddPeer{ToStore: storeID, PeerID: 3})
 	oc.AddOperator(op)
 	op = operator.NewOperator("test", "test", 2, &metapb.RegionEpoch{}, operator.OpRegion, operator.RemovePeer{FromStore: storeID})
@@ -922,7 +923,7 @@ func (s *clusterTestSuite) TestOfflineStoreLimit(c *C) {
 
 	oc := rc.GetOperatorController()
 	opt := rc.GetOpt()
-	opt.SetAllStoresLimit(storelimit.RemovePeer, 1)
+	opt.SetAllStoresLimit(config2.RemovePeer, 1)
 	// only can add 5 remove peer operators on store 1
 	for i := uint64(1); i <= 5; i++ {
 		op := operator.NewOperator("test", "test", 1, &metapb.RegionEpoch{ConfVer: 1, Version: 1}, operator.OpRegion, operator.RemovePeer{FromStore: 1})
@@ -944,7 +945,7 @@ func (s *clusterTestSuite) TestOfflineStoreLimit(c *C) {
 	c.Assert(oc.RemoveOperator(op), IsFalse)
 
 	// reset all store limit
-	opt.SetAllStoresLimit(storelimit.RemovePeer, 2)
+	opt.SetAllStoresLimit(config2.RemovePeer, 2)
 
 	// only can add 5 remove peer operators on store 2
 	for i := uint64(1); i <= 5; i++ {
@@ -957,7 +958,7 @@ func (s *clusterTestSuite) TestOfflineStoreLimit(c *C) {
 	c.Assert(oc.RemoveOperator(op), IsFalse)
 
 	// offline store 1
-	rc.SetStoreLimit(1, storelimit.RemovePeer, storelimit.Unlimited)
+	rc.SetStoreLimit(1, config2.RemovePeer, storelimit.Unlimited)
 	rc.RemoveStore(1)
 
 	// can add unlimited remove peer operators on store 1

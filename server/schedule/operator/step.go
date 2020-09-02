@@ -21,8 +21,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"go.uber.org/zap"
 )
 
@@ -112,7 +112,7 @@ func (ap AddPeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
 	regionSize := region.GetApproximateSize()
 	to.RegionSize += regionSize
 	to.RegionCount++
-	to.AdjustStepCost(storelimit.AddPeer, regionSize)
+	to.AdjustStepCost(config2.AddPeer, regionSize)
 }
 
 // CheckSafety checks if the step meets the safety properties.
@@ -175,7 +175,7 @@ func (al AddLearner) Influence(opInfluence OpInfluence, region *core.RegionInfo)
 	regionSize := region.GetApproximateSize()
 	to.RegionSize += regionSize
 	to.RegionCount++
-	to.AdjustStepCost(storelimit.AddPeer, regionSize)
+	to.AdjustStepCost(config2.AddPeer, regionSize)
 }
 
 // PromoteLearner is an OpStep that promotes a region learner peer to normal voter.
@@ -252,7 +252,7 @@ func (rp RemovePeer) Influence(opInfluence OpInfluence, region *core.RegionInfo)
 	regionSize := region.GetApproximateSize()
 	from.RegionSize -= regionSize
 	from.RegionCount--
-	from.AdjustStepCost(storelimit.RemovePeer, regionSize)
+	from.AdjustStepCost(config2.RemovePeer, regionSize)
 }
 
 // MergeRegion is an OpStep that merge two regions.

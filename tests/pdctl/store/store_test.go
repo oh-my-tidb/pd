@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/server"
 	"github.com/tikv/pd/server/api"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/schedule/storelimit"
 	"github.com/tikv/pd/tests"
 	"github.com/tikv/pd/tests/pdctl"
@@ -154,33 +155,33 @@ func (s *storeTestSuite) TestStore(c *C) {
 	args = []string{"-u", pdAddr, "store", "limit", "1", "10"}
 	_, _, err = pdctl.ExecuteCommandC(cmd, args...)
 	c.Assert(err, IsNil)
-	limit := leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.AddPeer)
+	limit := leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.AddPeer)
 	c.Assert(limit, Equals, float64(10))
-	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.RemovePeer)
+	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.RemovePeer)
 	c.Assert(limit, Equals, float64(10))
 
 	// store limit <store_id> <rate> <type>
 	args = []string{"-u", pdAddr, "store", "limit", "1", "5", "remove-peer"}
 	_, _, err = pdctl.ExecuteCommandC(cmd, args...)
 	c.Assert(err, IsNil)
-	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.RemovePeer)
+	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.RemovePeer)
 	c.Assert(limit, Equals, float64(5))
-	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.AddPeer)
+	limit = leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.AddPeer)
 	c.Assert(limit, Equals, float64(10))
 
 	// store limit all <rate>
 	args = []string{"-u", pdAddr, "store", "limit", "all", "20"}
 	_, _, err = pdctl.ExecuteCommandC(cmd, args...)
 	c.Assert(err, IsNil)
-	limit1 := leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.AddPeer)
-	limit2 := leaderServer.GetRaftCluster().GetStoreLimitByType(2, storelimit.AddPeer)
-	limit3 := leaderServer.GetRaftCluster().GetStoreLimitByType(3, storelimit.AddPeer)
+	limit1 := leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.AddPeer)
+	limit2 := leaderServer.GetRaftCluster().GetStoreLimitByType(2, config2.AddPeer)
+	limit3 := leaderServer.GetRaftCluster().GetStoreLimitByType(3, config2.AddPeer)
 	c.Assert(limit1, Equals, float64(20))
 	c.Assert(limit2, Equals, float64(20))
 	c.Assert(limit3, Equals, float64(20))
-	limit1 = leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.RemovePeer)
-	limit2 = leaderServer.GetRaftCluster().GetStoreLimitByType(2, storelimit.RemovePeer)
-	limit3 = leaderServer.GetRaftCluster().GetStoreLimitByType(3, storelimit.RemovePeer)
+	limit1 = leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.RemovePeer)
+	limit2 = leaderServer.GetRaftCluster().GetStoreLimitByType(2, config2.RemovePeer)
+	limit3 = leaderServer.GetRaftCluster().GetStoreLimitByType(3, config2.RemovePeer)
 	c.Assert(limit1, Equals, float64(20))
 	c.Assert(limit2, Equals, float64(20))
 	c.Assert(limit3, Equals, float64(20))
@@ -189,11 +190,11 @@ func (s *storeTestSuite) TestStore(c *C) {
 	args = []string{"-u", pdAddr, "store", "limit", "all", "25", "remove-peer"}
 	_, _, err = pdctl.ExecuteCommandC(cmd, args...)
 	c.Assert(err, IsNil)
-	limit1 = leaderServer.GetRaftCluster().GetStoreLimitByType(1, storelimit.RemovePeer)
-	limit3 = leaderServer.GetRaftCluster().GetStoreLimitByType(3, storelimit.RemovePeer)
+	limit1 = leaderServer.GetRaftCluster().GetStoreLimitByType(1, config2.RemovePeer)
+	limit3 = leaderServer.GetRaftCluster().GetStoreLimitByType(3, config2.RemovePeer)
 	c.Assert(limit1, Equals, float64(25))
 	c.Assert(limit3, Equals, float64(25))
-	limit2 = leaderServer.GetRaftCluster().GetStoreLimitByType(2, storelimit.RemovePeer)
+	limit2 = leaderServer.GetRaftCluster().GetStoreLimitByType(2, config2.RemovePeer)
 	c.Assert(limit2, Equals, float64(25))
 
 	// store limit all 0 is invalid
@@ -266,7 +267,7 @@ func (s *storeTestSuite) TestStore(c *C) {
 	scene := &storelimit.Scene{}
 	err = json.Unmarshal(output, scene)
 	c.Assert(err, IsNil)
-	c.Assert(scene, DeepEquals, storelimit.DefaultScene(storelimit.AddPeer))
+	c.Assert(scene, DeepEquals, storelimit.DefaultScene(config2.AddPeer))
 
 	// store limit-scene <scene> <rate>
 	args = []string{"-u", pdAddr, "store", "limit-scene", "idle", "200"}

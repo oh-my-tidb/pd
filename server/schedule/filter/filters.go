@@ -19,10 +19,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/slice"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/opt"
 	"github.com/tikv/pd/server/schedule/placement"
-	"github.com/tikv/pd/server/schedule/storelimit"
 	"go.uber.org/zap"
 )
 
@@ -267,11 +267,11 @@ func (f StoreStateFilter) isBusy(opt opt.Options, store *core.StoreInfo) bool {
 }
 
 func (f StoreStateFilter) exceedRemoveLimit(opt opt.Options, store *core.StoreInfo) bool {
-	return !f.AllowTemporaryStates && !store.IsAvailable(storelimit.RemovePeer)
+	return !f.AllowTemporaryStates && !store.IsAvailable(config2.RemovePeer)
 }
 
 func (f StoreStateFilter) exceedAddLimit(opt opt.Options, store *core.StoreInfo) bool {
-	return !f.AllowTemporaryStates && !store.IsAvailable(storelimit.AddPeer)
+	return !f.AllowTemporaryStates && !store.IsAvailable(config2.AddPeer)
 }
 
 func (f StoreStateFilter) tooManySnapshots(opt opt.Options, store *core.StoreInfo) bool {

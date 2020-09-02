@@ -13,6 +13,8 @@
 
 package storelimit
 
+import "github.com/tikv/pd/server/config2"
+
 // Scene defines the store limitation on difference
 // scenes
 // Idle/Low/Normal/High indicates the load of the cluster, it is defined
@@ -29,7 +31,7 @@ type Scene struct {
 }
 
 // DefaultScene returns Scene object with default values
-func DefaultScene(limitType Type) *Scene {
+func DefaultScene(limitType config2.StoreLimitType) *Scene {
 	defaultScene := &Scene{
 		Idle:   100,
 		Low:    50,
@@ -39,9 +41,9 @@ func DefaultScene(limitType Type) *Scene {
 
 	// change this if different type rate limit has different default scene
 	switch limitType {
-	case AddPeer:
+	case config2.AddPeer:
 		return defaultScene
-	case RemovePeer:
+	case config2.RemovePeer:
 		return defaultScene
 	default:
 		return nil

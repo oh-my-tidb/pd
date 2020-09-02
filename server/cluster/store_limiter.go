@@ -18,6 +18,7 @@ import (
 
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/schedule/opt"
 	"github.com/tikv/pd/server/schedule/storelimit"
 	"go.uber.org/zap"
@@ -27,16 +28,16 @@ import (
 type StoreLimiter struct {
 	m       sync.RWMutex
 	opt     opt.Options
-	scene   map[storelimit.Type]*storelimit.Scene
+	scene   map[config2.StoreLimitType]*storelimit.Scene
 	state   *State
 	current LoadState
 }
 
 // NewStoreLimiter builds a store limiter object using the operator controller
 func NewStoreLimiter(opt opt.Options) *StoreLimiter {
-	defaultScene := map[storelimit.Type]*storelimit.Scene{
-		storelimit.AddPeer:    storelimit.DefaultScene(storelimit.AddPeer),
-		storelimit.RemovePeer: storelimit.DefaultScene(storelimit.RemovePeer),
+	defaultScene := map[config2.StoreLimitType]*storelimit.Scene{
+		config2.AddPeer:    storelimit.DefaultScene(config2.AddPeer),
+		config2.RemovePeer: storelimit.DefaultScene(config2.RemovePeer),
 	}
 
 	return &StoreLimiter{
@@ -56,16 +57,16 @@ func (s *StoreLimiter) Collect(stats *pdpb.StoreStats) {
 	s.state.Collect((*StatEntry)(stats))
 
 	state := s.state.State()
-	ratePeerAdd := s.calculateRate(storelimit.AddPeer, state)
-	ratePeerRemove := s.calculateRate(storelimit.RemovePeer, state)
+	ratePeerAdd := s.calculateRate(config2.AddPeer, state)
+	ratePeerRemove := s.calculateRate(config2.RemovePeer, state)
 
 	if ratePeerAdd > 0 || ratePeerRemove > 0 {
 		if ratePeerAdd > 0 {
-			s.opt.SetAllStoresLimit(storelimit.AddPeer, ratePeerAdd)
+			s.opt.SetAllStoresLimit(config2.AddPeer, ratePeerAdd)
 			log.Info("change store region add limit for cluster", zap.Stringer("state", state), zap.Float64("rate", ratePeerAdd))
 		}
 		if ratePeerRemove > 0 {
-			s.opt.SetAllStoresLimit(storelimit.RemovePeer, ratePeerRemove)
+			s.opt.SetAllStoresLimit(config2.RemovePeer, ratePeerRemove)
 			log.Info("change store region remove limit for cluster", zap.Stringer("state", state), zap.Float64("rate", ratePeerRemove))
 		}
 		s.current = state
@@ -83,7 +84,7 @@ func collectClusterStateCurrent(state LoadState) {
 	}
 }
 
-func (s *StoreLimiter) calculateRate(limitType storelimit.Type, state LoadState) float64 {
+func (s *StoreLimiter) calculateRate(limitType config2.StoreLimitType, state LoadState) float64 {
 	rate := float64(0)
 	switch state {
 	case LoadStateIdle:
@@ -99,17 +100,17 @@ func (s *StoreLimiter) calculateRate(limitType storelimit.Type, state LoadState)
 }
 
 // ReplaceStoreLimitScene replaces the store limit values for different scenes
-func (s *StoreLimiter) ReplaceStoreLimitScene(scene *storelimit.Scene, limitType storelimit.Type) {
+func (s *StoreLimiter) ReplaceStoreLimitScene(scene *storelimit.Scene, limitType config2.StoreLimitType) {
 	s.m.Lock()
 	defer s.m.Unlock()
 	if s.scene == nil {
-		s.scene = make(map[storelimit.Type]*storelimit.Scene)
+		s.scene = make(map[config2.StoreLimitType]*storelimit.Scene)
 	}
 	s.scene[limitType] = scene
 }
 
 // StoreLimitScene returns the current limit for different scenes
-func (s *StoreLimiter) StoreLimitScene(limitType storelimit.Type) *storelimit.Scene {
+func (s *StoreLimiter) StoreLimitScene(limitType config2.StoreLimitType) *storelimit.Scene {
 	s.m.RLock()
 	defer s.m.RUnlock()
 	return s.scene[limitType]

@@ -24,10 +24,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/pkg/slice"
 	"github.com/tikv/pd/pkg/typeutil"
+	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	"github.com/tikv/pd/server/schedule"
-	"github.com/tikv/pd/server/schedule/storelimit"
 )
 
 // PersistOptions wraps all configurations that need to persist to storage and
@@ -183,21 +183,21 @@ func (o *PersistOptions) SetSplitMergeInterval(splitMergeInterval time.Duration)
 }
 
 // SetStoreLimit sets a store limit for a given type and rate.
-func (o *PersistOptions) SetStoreLimit(storeID uint64, typ storelimit.Type, ratePerMin float64) {
+func (o *PersistOptions) SetStoreLimit(storeID uint64, typ config2.StoreLimitType, ratePerMin float64) {
 	v := o.GetScheduleConfig().Clone()
 	var sc StoreLimitConfig
 	var rate float64
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		if _, ok := v.StoreLimit[storeID]; !ok {
-			rate = DefaultStoreLimit.GetDefaultStoreLimit(storelimit.AddPeer)
+			rate = DefaultStoreLimit.GetDefaultStoreLimit(config2.AddPeer)
 		} else {
 			rate = v.StoreLimit[storeID].RemovePeer
 		}
 		sc = StoreLimitConfig{AddPeer: ratePerMin, RemovePeer: rate}
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		if _, ok := v.StoreLimit[storeID]; !ok {
-			rate = DefaultStoreLimit.GetDefaultStoreLimit(storelimit.RemovePeer)
+			rate = DefaultStoreLimit.GetDefaultStoreLimit(config2.RemovePeer)
 		} else {
 			rate = v.StoreLimit[storeID].AddPeer
 		}
@@ -208,17 +208,17 @@ func (o *PersistOptions) SetStoreLimit(storeID uint64, typ storelimit.Type, rate
 }
 
 // SetAllStoresLimit sets all store limit for a given type and rate.
-func (o *PersistOptions) SetAllStoresLimit(typ storelimit.Type, ratePerMin float64) {
+func (o *PersistOptions) SetAllStoresLimit(typ config2.StoreLimitType, ratePerMin float64) {
 	v := o.GetScheduleConfig().Clone()
 	switch typ {
-	case storelimit.AddPeer:
-		DefaultStoreLimit.SetDefaultStoreLimit(storelimit.AddPeer, ratePerMin)
+	case config2.AddPeer:
+		DefaultStoreLimit.SetDefaultStoreLimit(config2.AddPeer, ratePerMin)
 		for storeID := range v.StoreLimit {
 			sc := StoreLimitConfig{AddPeer: ratePerMin, RemovePeer: v.StoreLimit[storeID].RemovePeer}
 			v.StoreLimit[storeID] = sc
 		}
-	case storelimit.RemovePeer:
-		DefaultStoreLimit.SetDefaultStoreLimit(storelimit.RemovePeer, ratePerMin)
+	case config2.RemovePeer:
+		DefaultStoreLimit.SetDefaultStoreLimit(config2.RemovePeer, ratePerMin)
 		for storeID := range v.StoreLimit {
 			sc := StoreLimitConfig{AddPeer: v.StoreLimit[storeID].AddPeer, RemovePeer: ratePerMin}
 			v.StoreLimit[storeID] = sc
@@ -280,8 +280,8 @@ func (o *PersistOptions) GetStoreLimit(storeID uint64) StoreLimitConfig {
 	}
 	cfg := o.GetScheduleConfig().Clone()
 	sc := StoreLimitConfig{
-		AddPeer:    DefaultStoreLimit.GetDefaultStoreLimit(storelimit.AddPeer),
-		RemovePeer: DefaultStoreLimit.GetDefaultStoreLimit(storelimit.RemovePeer),
+		AddPeer:    DefaultStoreLimit.GetDefaultStoreLimit(config2.AddPeer),
+		RemovePeer: DefaultStoreLimit.GetDefaultStoreLimit(config2.RemovePeer),
 	}
 	cfg.StoreLimit[storeID] = sc
 	o.SetScheduleConfig(cfg)
@@ -289,12 +289,12 @@ func (o *PersistOptions) GetStoreLimit(storeID uint64) StoreLimitConfig {
 }
 
 // GetStoreLimitByType returns the limit of a store with a given type.
-func (o *PersistOptions) GetStoreLimitByType(storeID uint64, typ storelimit.Type) float64 {
+func (o *PersistOptions) GetStoreLimitByType(storeID uint64, typ config2.StoreLimitType) float64 {
 	limit := o.GetStoreLimit(storeID)
 	switch typ {
-	case storelimit.AddPeer:
+	case config2.AddPeer:
 		return limit.AddPeer
-	case storelimit.RemovePeer:
+	case config2.RemovePeer:
 		return limit.RemovePeer
 	default:
 		panic("no such limit type")
