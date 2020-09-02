@@ -14,7 +14,6 @@
 package config
 
 import (
-	"context"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -26,8 +25,6 @@ import (
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/config2"
 	"github.com/tikv/pd/server/core"
-	"github.com/tikv/pd/server/kv"
-	"github.com/tikv/pd/server/schedule"
 )
 
 // PersistOptions wraps all configurations that need to persist to storage and
@@ -416,30 +413,6 @@ func (o *PersistOptions) AddSchedulerCfg(tp string, args []string) {
 	}
 	v.Schedulers = append(v.Schedulers, SchedulerConfig{Type: tp, Args: args, Disable: false})
 	o.SetScheduleConfig(v)
-}
-
-// RemoveSchedulerCfg removes the scheduler configurations.
-func (o *PersistOptions) RemoveSchedulerCfg(ctx context.Context, name string) error {
-	v := o.GetScheduleConfig().Clone()
-	for i, schedulerCfg := range v.Schedulers {
-		// To create a temporary scheduler is just used to get scheduler's name
-		decoder := schedule.ConfigSliceDecoder(schedulerCfg.Type, schedulerCfg.Args)
-		tmp, err := schedule.CreateScheduler(schedulerCfg.Type, schedule.NewOperatorController(ctx, nil, nil), core.NewStorage(kv.NewMemoryKV()), decoder)
-		if err != nil {
-			return err
-		}
-		if tmp.GetName() == name {
-			if IsDefaultScheduler(tmp.GetType()) {
-				schedulerCfg.Disable = true
-				v.Schedulers[i] = schedulerCfg
-			} else {
-				v.Schedulers = append(v.Schedulers[:i], v.Schedulers[i+1:]...)
-			}
-			o.SetScheduleConfig(v)
-			return nil
-		}
-	}
-	return nil
 }
 
 // SetLabelProperty sets the label property.
