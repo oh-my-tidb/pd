@@ -29,7 +29,7 @@ Thanks for your contributions!
 
 ### Before sending a PR
 
-As our CI is not very stable recently, following 2 extra steps are strongly recommended before sending a PR:
+As our CI is not very stable recently, following 4 extra steps are strongly recommended before sending a PR:
 
 ![](pr.png)
 
