@@ -27,6 +27,12 @@ More specifics on the coding flow are in [development](./docs/development.md).
 
 Thanks for your contributions!
 
+### Before sending a PR
+
+As our CI is not very stable recently, following 2 extra steps are strongly recommended before sending a PR:
+
+![](pr.png)
+
 ### Code style
 
 The coding style suggested by the Golang community is used in PD. See the [style doc](https://github.com/golang/go/wiki/CodeReviewComments) for details.
