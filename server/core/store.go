@@ -31,6 +31,7 @@ const (
 	// Interval to save store meta (including heartbeat ts) to etcd.
 	storePersistInterval = 5 * time.Minute
 	mb                   = 1 << 20 // megabyte
+	gb                   = 1 << 30
 )
 
 // StoreInfo contains information about a store.
@@ -330,10 +331,18 @@ func (s *StoreInfo) LeaderScore(policy SchedulePolicy, delta int64) float64 {
 
 // RegionScore returns the store's region score.
 func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
+	// available := float64(s.GetAvgAvailable()-float64(divation)*s.GetAvailableDeviation()) / gb
+	// used := float64(s.GetAvgUsed()+float64(divation)*s.GetUsedDeviation()) / gb
+	// capacity := float64(s.GetCapacity()) / gb
+	// score := s.GetRegionSize() + delta
+	// if available < capacity {
+	// 	score *= (1 + 256*(math.Log(capacity)-math.Log(available))/(capacity-available))
+	// }
+
 	var score float64
 	var amplification float64
-	available := float64(s.GetAvgAvailable()-uint64(divation)*s.GetAvailableDeviation()) / mb
-	used := float64(s.GetAvgUsed()+uint64(divation)*s.GetUsedDeviation()) / mb
+	available := (float64(s.GetAvgAvailable()) - float64(divation)*float64(s.GetAvailableDeviation())) / mb
+	used := (float64(s.GetAvgUsed()) + float64(divation)*float64(s.GetUsedDeviation())) / mb
 	capacity := float64(s.GetCapacity()) / mb
 
 	if s.GetRegionSize() == 0 || used == 0 {
