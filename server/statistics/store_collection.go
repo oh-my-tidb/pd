@@ -93,7 +93,7 @@ func (s *storeStatistics) Observe(store *core.StoreInfo, stats *StoresStats) {
 	s.RegionCount += store.GetRegionCount()
 	s.LeaderCount += store.GetLeaderCount()
 
-	storeStatusGauge.WithLabelValues(storeAddress, id, "region_score").Set(store.RegionScore(s.opt.GetHighSpaceRatio(), s.opt.GetLowSpaceRatio(), 0))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "region_score").Set(store.RegionScore(s.opt.GetHighSpaceRatio(), s.opt.GetLowSpaceRatio(), 0, 0))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "leader_score").Set(store.LeaderScore(s.opt.GetLeaderSchedulePolicy(), 0))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "region_size").Set(float64(store.GetRegionSize()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "region_count").Set(float64(store.GetRegionCount()))
@@ -102,6 +102,10 @@ func (s *storeStatistics) Observe(store *core.StoreInfo, stats *StoresStats) {
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available").Set(float64(store.GetAvailable()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_used").Set(float64(store.GetUsedSize()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_capacity").Set(float64(store.GetCapacity()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_avg_available").Set(float64(store.GetAvgAvailable()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_avg_used").Set(float64(store.GetAvgUsed()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available_deviation").Set(float64(store.GetAvailableDeviation()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_used_deviation").Set(float64(store.GetUsedDeviation()))
 
 	// Store flows.
 	storeFlowStats := stats.GetRollingStoreStats(store.GetID())

@@ -47,15 +47,23 @@ type StoreInfo struct {
 	leaderWeight        float64
 	regionWeight        float64
 	available           map[storelimit.Type]func() bool
+	avgAvailableSize    *HMA
+	avgUsedSize         *HMA
+	avaiableDeviation   *MaxFilter
+	usedDeviation       *MaxFilter
 }
 
 // NewStoreInfo creates StoreInfo with meta data.
 func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 	storeInfo := &StoreInfo{
-		meta:         store,
-		stats:        &pdpb.StoreStats{},
-		leaderWeight: 1.0,
-		regionWeight: 1.0,
+		meta:              store,
+		stats:             &pdpb.StoreStats{},
+		leaderWeight:      1.0,
+		regionWeight:      1.0,
+		avgAvailableSize:  NewHMA(240),
+		avgUsedSize:       NewHMA(240),
+		avaiableDeviation: NewMaxFilter(120),
+		usedDeviation:     NewMaxFilter(120),
 	}
 	for _, opt := range opts {
 		opt(storeInfo)
@@ -79,6 +87,10 @@ func (s *StoreInfo) Clone(opts ...StoreCreateOption) *StoreInfo {
 		leaderWeight:        s.leaderWeight,
 		regionWeight:        s.regionWeight,
 		available:           s.available,
+		avgAvailableSize:    s.avgAvailableSize.Copy(),
+		avgUsedSize:         s.avgUsedSize.Copy(),
+		avaiableDeviation:   s.avaiableDeviation.Copy(),
+		usedDeviation:       s.usedDeviation.Copy(),
 	}
 
 	for _, opt := range opts {
@@ -102,6 +114,10 @@ func (s *StoreInfo) ShallowClone(opts ...StoreCreateOption) *StoreInfo {
 		leaderWeight:        s.leaderWeight,
 		regionWeight:        s.regionWeight,
 		available:           s.available,
+		avgAvailableSize:    s.avgAvailableSize,
+		avgUsedSize:         s.avgUsedSize,
+		avaiableDeviation:   s.avaiableDeviation,
+		usedDeviation:       s.usedDeviation,
 	}
 
 	for _, opt := range opts {
@@ -187,6 +203,24 @@ func (s *StoreInfo) GetCapacity() uint64 {
 // GetAvailable returns the available size of the store.
 func (s *StoreInfo) GetAvailable() uint64 {
 	return s.stats.GetAvailable()
+}
+
+// GetAvgAvailable returns average value for 20 minutes.
+func (s *StoreInfo) GetAvgAvailable() uint64 {
+	return uint64(s.avgAvailableSize.Get())
+}
+
+// GetAvgUsed returns average value for 20 minutes.
+func (s *StoreInfo) GetAvgUsed() uint64 {
+	return uint64(s.avgUsedSize.Get())
+}
+
+func (s *StoreInfo) GetAvailableDeviation() uint64 {
+	return uint64(s.avaiableDeviation.Get())
+}
+
+func (s *StoreInfo) GetUsedDeviation() uint64 {
+	return uint64(s.usedDeviation.Get())
 }
 
 // GetUsedSize returns the used size of the store.
@@ -295,11 +329,11 @@ func (s *StoreInfo) LeaderScore(policy SchedulePolicy, delta int64) float64 {
 }
 
 // RegionScore returns the store's region score.
-func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64) float64 {
+func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
 	var score float64
 	var amplification float64
-	available := float64(s.GetAvailable()) / mb
-	used := float64(s.GetUsedSize()) / mb
+	available := float64(s.GetAvgAvailable()-uint64(divation)*s.GetAvailableDeviation()) / mb
+	used := float64(s.GetAvgUsed()+uint64(divation)*s.GetUsedDeviation()) / mb
 	capacity := float64(s.GetCapacity()) / mb
 
 	if s.GetRegionSize() == 0 || used == 0 {
@@ -383,12 +417,12 @@ func (s *StoreInfo) ResourceSize(kind ResourceKind) int64 {
 }
 
 // ResourceScore returns score of leader/region in the store.
-func (s *StoreInfo) ResourceScore(scheduleKind ScheduleKind, highSpaceRatio, lowSpaceRatio float64, delta int64) float64 {
+func (s *StoreInfo) ResourceScore(scheduleKind ScheduleKind, highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
 	switch scheduleKind.Resource {
 	case LeaderKind:
 		return s.LeaderScore(scheduleKind.Policy, delta)
 	case RegionKind:
-		return s.RegionScore(highSpaceRatio, lowSpaceRatio, delta)
+		return s.RegionScore(highSpaceRatio, lowSpaceRatio, delta, divation)
 	default:
 		return 0
 	}
@@ -662,4 +696,46 @@ func IsTiFlashStore(store *metapb.Store) bool {
 		}
 	}
 	return false
+}
+
+type historyAverage struct {
+	size    int
+	history []uint64
+	idx     int
+}
+
+func newHistoryAverage(size int) *historyAverage {
+	return &historyAverage{size: size}
+}
+
+func (h *historyAverage) clone() *historyAverage {
+	return &historyAverage{
+		size:    h.size,
+		history: append(h.history[:0:0], h.history...),
+		idx:     h.idx,
+	}
+}
+
+func (h *historyAverage) push(v uint64) {
+	if h.idx >= len(h.history) {
+		if h.idx < h.size {
+			h.history = append(h.history, v)
+			return
+		}
+		h.idx = 0
+	}
+	h.history[h.idx] = v
+	h.idx++
+}
+
+func (h *historyAverage) getValue() uint64 {
+	if len(h.history) == 0 {
+		return 0
+	}
+
+	var total uint64
+	for _, v := range h.history {
+		total += v
+	}
+	return total / uint64(len(h.history))
 }

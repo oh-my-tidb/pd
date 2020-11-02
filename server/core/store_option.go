@@ -14,6 +14,7 @@
 package core
 
 import (
+	"math"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -165,6 +166,10 @@ func SetLastPersistTime(lastPersist time.Time) StoreCreateOption {
 func SetStoreStats(stats *pdpb.StoreStats) StoreCreateOption {
 	return func(store *StoreInfo) {
 		store.stats = stats
+		store.avgAvailableSize.Add(float64(stats.GetAvailable()))
+		store.avaiableDeviation.Add(math.Abs(float64(stats.GetAvailable()) - float64(store.GetAvgAvailable())))
+		store.avgUsedSize.Add(float64(stats.GetUsedSize()))
+		store.usedDeviation.Add(math.Abs(float64(stats.GetUsedSize()) - float64(store.GetAvgUsed())))
 	}
 }
 
