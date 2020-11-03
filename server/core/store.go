@@ -208,12 +208,20 @@ func (s *StoreInfo) GetAvailable() uint64 {
 
 // GetAvgAvailable returns average value for 20 minutes.
 func (s *StoreInfo) GetAvgAvailable() uint64 {
-	return uint64(s.avgAvailableSize.Get())
+	v := s.avgAvailableSize.Get()
+	if v <= 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 // GetAvgUsed returns average value for 20 minutes.
 func (s *StoreInfo) GetAvgUsed() uint64 {
-	return uint64(s.avgUsedSize.Get())
+	v := s.avgUsedSize.Get()
+	if v <= 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 func (s *StoreInfo) GetAvailableDeviation() uint64 {
