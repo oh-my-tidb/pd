@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tikv/pd/pkg/encryption"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/grpcutil"
 	"github.com/tikv/pd/pkg/logutil"
@@ -86,6 +87,12 @@ type Config struct {
 	// TSOSaveInterval is the interval to save timestamp.
 	TSOSaveInterval typeutil.Duration `toml:"tso-save-interval" json:"tso-save-interval"`
 
+	// The interval to update physical part of timestamp. Usually, this config should not be set.
+	// It's only useful for test purposes.
+	// This config is only valid in 50ms to 10s. If it's configured too long or too short, it will
+	// be automatically clamped to the range.
+	TSOUpdatePhysicalInterval typeutil.Duration `toml:"tso-update-physical-interval" json:"tso-update-physical-interval"`
+
 	// Local TSO service related configuration.
 	LocalTSO LocalTSOConfig `toml:"local-tso" json:"local-tso"`
 
@@ -122,7 +129,7 @@ type Config struct {
 	// an election, thus minimizing disruptions.
 	PreVote bool `toml:"enable-prevote"`
 
-	Security grpcutil.SecurityConfig `toml:"security" json:"security"`
+	Security SecurityConfig `toml:"security" json:"security"`
 
 	LabelProperty LabelPropertyConfig `toml:"label-property" json:"label-property"`
 
@@ -145,8 +152,6 @@ type Config struct {
 	Dashboard DashboardConfig `toml:"dashboard" json:"dashboard"`
 
 	ReplicationMode ReplicationModeConfig `toml:"replication-mode" json:"replication-mode"`
-	// EnableRedactLog indicates that whether redact log, 0 is disable. 1 is enable.
-	EnableRedactLog bool `toml:"enable-redact-log" json:"enable-redact-log"`
 }
 
 // NewConfig creates a new config.
@@ -215,16 +220,21 @@ const (
 	defaultMaxResetTSGap    = 24 * time.Hour
 	defaultKeyType          = "table"
 
-	defaultStrictlyMatchLabel  = false
-	defaultEnableGRPCGateway   = true
-	defaultDisableErrorVerbose = true
+	defaultStrictlyMatchLabel   = false
+	defaultEnablePlacementRules = true
+	defaultEnableGRPCGateway    = true
+	defaultDisableErrorVerbose  = true
 
 	defaultDashboardAddress = "auto"
 
 	defaultDRWaitStoreTimeout = time.Minute
 	defaultDRWaitSyncTimeout  = time.Minute
 	defaultDRWaitAsyncTimeout = 2 * time.Minute
-	defaultEnableRedactLog    = false
+
+	// DefaultTSOUpdatePhysicalInterval is the default value of the config `TSOUpdatePhysicalInterval`.
+	DefaultTSOUpdatePhysicalInterval = 50 * time.Millisecond
+	maxTSOUpdatePhysicalInterval     = 10 * time.Second
+	minTSOUpdatePhysicalInterval     = 50 * time.Millisecond
 )
 
 var (
@@ -502,6 +512,14 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 
 	adjustDuration(&c.TSOSaveInterval, time.Duration(defaultLeaderLease)*time.Second)
 
+	adjustDuration(&c.TSOUpdatePhysicalInterval, DefaultTSOUpdatePhysicalInterval)
+
+	if c.TSOUpdatePhysicalInterval.Duration > maxTSOUpdatePhysicalInterval {
+		c.TSOUpdatePhysicalInterval.Duration = maxTSOUpdatePhysicalInterval
+	} else if c.TSOUpdatePhysicalInterval.Duration < minTSOUpdatePhysicalInterval {
+		c.TSOUpdatePhysicalInterval.Duration = minTSOUpdatePhysicalInterval
+	}
+
 	if err := c.LocalTSO.Validate(); err != nil {
 		return err
 	}
@@ -547,9 +565,7 @@ func (c *Config) Adjust(meta *toml.MetaData) error {
 
 	c.ReplicationMode.adjust(configMetaData.Child("replication-mode"))
 
-	if !configMetaData.IsDefined("enable-redact-log") {
-		c.EnableRedactLog = defaultEnableRedactLog
-	}
+	c.Security.Encryption.Adjust()
 
 	return nil
 }
@@ -562,9 +578,8 @@ func (c *Config) adjustLog(meta *configMetaData) {
 
 // Clone returns a cloned configuration.
 func (c *Config) Clone() *Config {
-	cfg := &Config{}
-	*cfg = *c
-	return cfg
+	cfg := *c
+	return &cfg
 }
 
 func (c *Config) String() string {
@@ -697,50 +712,19 @@ type ScheduleConfig struct {
 
 // Clone returns a cloned scheduling configuration.
 func (c *ScheduleConfig) Clone() *ScheduleConfig {
-	schedulers := make(SchedulerConfigs, len(c.Schedulers))
-	copy(schedulers, c.Schedulers)
-	storeLimit := make(map[uint64]StoreLimitConfig, len(c.StoreLimit))
-	for k, v := range c.StoreLimit {
-		storeLimit[k] = v
+	schedulers := append(c.Schedulers[:0:0], c.Schedulers...)
+	var storeLimit map[uint64]StoreLimitConfig
+	if c.StoreLimit != nil {
+		storeLimit = make(map[uint64]StoreLimitConfig, len(c.StoreLimit))
+		for k, v := range c.StoreLimit {
+			storeLimit[k] = v
+		}
 	}
-	return &ScheduleConfig{
-		MaxSnapshotCount:             c.MaxSnapshotCount,
-		MaxPendingPeerCount:          c.MaxPendingPeerCount,
-		MaxMergeRegionSize:           c.MaxMergeRegionSize,
-		MaxMergeRegionKeys:           c.MaxMergeRegionKeys,
-		SplitMergeInterval:           c.SplitMergeInterval,
-		PatrolRegionInterval:         c.PatrolRegionInterval,
-		MaxStoreDownTime:             c.MaxStoreDownTime,
-		LeaderScheduleLimit:          c.LeaderScheduleLimit,
-		LeaderSchedulePolicy:         c.LeaderSchedulePolicy,
-		RegionScheduleLimit:          c.RegionScheduleLimit,
-		ReplicaScheduleLimit:         c.ReplicaScheduleLimit,
-		MergeScheduleLimit:           c.MergeScheduleLimit,
-		EnableOneWayMerge:            c.EnableOneWayMerge,
-		EnableCrossTableMerge:        c.EnableCrossTableMerge,
-		HotRegionScheduleLimit:       c.HotRegionScheduleLimit,
-		HotRegionCacheHitsThreshold:  c.HotRegionCacheHitsThreshold,
-		StoreLimit:                   storeLimit,
-		TolerantSizeRatio:            c.TolerantSizeRatio,
-		LowSpaceRatio:                c.LowSpaceRatio,
-		HighSpaceRatio:               c.HighSpaceRatio,
-		SchedulerMaxWaitingOperator:  c.SchedulerMaxWaitingOperator,
-		DisableLearner:               c.DisableLearner,
-		DisableRemoveDownReplica:     c.DisableRemoveDownReplica,
-		DisableReplaceOfflineReplica: c.DisableReplaceOfflineReplica,
-		DisableMakeUpReplica:         c.DisableMakeUpReplica,
-		DisableRemoveExtraReplica:    c.DisableRemoveExtraReplica,
-		DisableLocationReplacement:   c.DisableLocationReplacement,
-		EnableRemoveDownReplica:      c.EnableRemoveDownReplica,
-		EnableReplaceOfflineReplica:  c.EnableReplaceOfflineReplica,
-		EnableMakeUpReplica:          c.EnableMakeUpReplica,
-		EnableRemoveExtraReplica:     c.EnableRemoveExtraReplica,
-		EnableLocationReplacement:    c.EnableLocationReplacement,
-		EnableDebugMetrics:           c.EnableDebugMetrics,
-		EnableJointConsensus:         c.EnableJointConsensus,
-		StoreLimitMode:               c.StoreLimitMode,
-		Schedulers:                   schedulers,
-	}
+	cfg := *c
+	cfg.StoreLimit = storeLimit
+	cfg.Schedulers = schedulers
+	cfg.SchedulersPayload = nil
+	return &cfg
 }
 
 const (
@@ -834,6 +818,10 @@ func (c *ScheduleConfig) adjust(meta *configMetaData) error {
 	if c.StoreBalanceRate != 0 {
 		DefaultStoreLimit = StoreLimit{AddPeer: c.StoreBalanceRate, RemovePeer: c.StoreBalanceRate}
 		c.StoreBalanceRate = 0
+	}
+
+	if c.StoreLimit == nil {
+		c.StoreLimit = make(map[uint64]StoreLimitConfig)
 	}
 
 	return c.Validate()
@@ -997,15 +985,10 @@ type ReplicationConfig struct {
 
 // Clone makes a deep copy of the config.
 func (c *ReplicationConfig) Clone() *ReplicationConfig {
-	locationLabels := make(typeutil.StringSlice, len(c.LocationLabels))
-	copy(locationLabels, c.LocationLabels)
-	return &ReplicationConfig{
-		MaxReplicas:          c.MaxReplicas,
-		LocationLabels:       locationLabels,
-		StrictlyMatchLabel:   c.StrictlyMatchLabel,
-		EnablePlacementRules: c.EnablePlacementRules,
-		IsolationLevel:       c.IsolationLevel,
-	}
+	locationLabels := append(c.LocationLabels[:0:0], c.LocationLabels...)
+	cfg := *c
+	cfg.LocationLabels = locationLabels
+	return &cfg
 }
 
 // Validate is used to validate if some replication configurations are right.
@@ -1029,6 +1012,9 @@ func (c *ReplicationConfig) Validate() error {
 
 func (c *ReplicationConfig) adjust(meta *configMetaData) error {
 	adjustUint64(&c.MaxReplicas, defaultMaxReplicas)
+	if !meta.IsDefined("enable-placement-rules") {
+		c.EnablePlacementRules = defaultEnablePlacementRules
+	}
 	if !meta.IsDefined("strictly-match-label") {
 		c.StrictlyMatchLabel = defaultStrictlyMatchLabel
 	}
@@ -1080,16 +1066,10 @@ func (c *PDServerConfig) adjust(meta *configMetaData) error {
 
 // Clone returns a cloned PD server config.
 func (c *PDServerConfig) Clone() *PDServerConfig {
-	runtimeServices := make(typeutil.StringSlice, len(c.RuntimeServices))
-	copy(runtimeServices, c.RuntimeServices)
-	return &PDServerConfig{
-		UseRegionStorage: c.UseRegionStorage,
-		MaxResetTSGap:    c.MaxResetTSGap,
-		KeyType:          c.KeyType,
-		MetricStorage:    c.MetricStorage,
-		DashboardAddress: c.DashboardAddress,
-		RuntimeServices:  runtimeServices,
-	}
+	runtimeServices := append(c.RuntimeServices[:0:0], c.RuntimeServices...)
+	cfg := *c
+	cfg.RuntimeServices = runtimeServices
+	return &cfg
 }
 
 // Validate is used to validate if some pd-server configurations are right.
@@ -1151,7 +1131,7 @@ func (c *Config) SetupLogger() error {
 	}
 	c.logger = lg
 	c.logProps = p
-	logutil.SetRedactLog(c.EnableRedactLog)
+	logutil.SetRedactLog(c.Security.RedactInfoLog)
 	return nil
 }
 
@@ -1372,4 +1352,12 @@ func (c *LocalTSOConfig) Validate() error {
 		return errors.New(errMsg)
 	}
 	return nil
+}
+
+// SecurityConfig indicates the security configuration for pd server
+type SecurityConfig struct {
+	grpcutil.TLSConfig
+	// RedactInfoLog indicates that whether enabling redact log
+	RedactInfoLog bool              `toml:"redact-info-log" json:"redact-info-log"`
+	Encryption    encryption.Config `toml:"encryption" json:"encryption"`
 }

@@ -41,7 +41,12 @@ func (s *testConfigSuite) SetUpSuite(c *C) {
 		RegisterScheduler(d.Type)
 	}
 	RegisterScheduler("random-merge")
-	RegisterScheduler("adjacent-region")
+	RegisterScheduler("shuffle-leader")
+}
+
+func (s *testConfigSuite) TestSecurity(c *C) {
+	cfg := NewConfig()
+	c.Assert(cfg.Security.RedactInfoLog, Equals, false)
 }
 
 func (s *testConfigSuite) TestTLS(c *C) {
@@ -67,8 +72,8 @@ func (s *testConfigSuite) TestReloadConfig(c *C) {
 	opt.GetPDServerConfig().UseRegionStorage = true
 	c.Assert(opt.Persist(storage), IsNil)
 
-	// Add a new default enable scheduler "adjacent-region"
-	DefaultSchedulers = append(DefaultSchedulers, SchedulerConfig{Type: "adjacent-region"})
+	// Add a new default enable scheduler "shuffle-leader"
+	DefaultSchedulers = append(DefaultSchedulers, SchedulerConfig{Type: "shuffle-leader"})
 	defer func() {
 		DefaultSchedulers = DefaultSchedulers[:len(DefaultSchedulers)-1]
 	}()
@@ -165,7 +170,8 @@ leader-schedule-limit = 0
 	c.Assert(cfg.PreVote, IsTrue)
 	c.Assert(cfg.Schedule.MaxMergeRegionKeys, Equals, uint64(defaultMaxMergeRegionKeys))
 	c.Assert(cfg.PDServerCfg.MetricStorage, Equals, "http://127.0.0.1:9090")
-	c.Assert(cfg.EnableRedactLog, Equals, defaultEnableRedactLog)
+
+	c.Assert(cfg.TSOUpdatePhysicalInterval.Duration, Equals, DefaultTSOUpdatePhysicalInterval)
 
 	// Check undefined config fields
 	cfgData = `
@@ -224,6 +230,29 @@ address = "localhost:9090"
 
 	c.Assert(cfg.Metric.PushInterval.Duration, Equals, 35*time.Second)
 	c.Assert(cfg.Metric.PushAddress, Equals, "localhost:9090")
+
+	// Test clamping TSOUpdatePhysicalInterval value
+	cfgData = `
+tso-update-physical-interval = "10ms"
+`
+	cfg = NewConfig()
+	meta, err = toml.Decode(cfgData, &cfg)
+	c.Assert(err, IsNil)
+	err = cfg.Adjust(&meta)
+	c.Assert(err, IsNil)
+
+	c.Assert(cfg.TSOUpdatePhysicalInterval.Duration, Equals, minTSOUpdatePhysicalInterval)
+
+	cfgData = `
+tso-update-physical-interval = "15s"
+`
+	cfg = NewConfig()
+	meta, err = toml.Decode(cfgData, &cfg)
+	c.Assert(err, IsNil)
+	err = cfg.Adjust(&meta)
+	c.Assert(err, IsNil)
+
+	c.Assert(cfg.TSOUpdatePhysicalInterval.Duration, Equals, maxTSOUpdatePhysicalInterval)
 }
 
 func (s *testConfigSuite) TestMigrateFlags(c *C) {
@@ -404,4 +433,28 @@ wait-store-timeout = "120s"
 	err = cfg.Adjust(&meta)
 	c.Assert(err, IsNil)
 	c.Assert(cfg.ReplicationMode.ReplicationMode, Equals, "majority")
+}
+
+func (s *testConfigSuite) TestConfigClone(c *C) {
+	cfg := &Config{}
+	cfg.Adjust(nil)
+	c.Assert(cfg.Clone(), DeepEquals, cfg)
+
+	emptyConfigMetaData := newConfigMetadata(nil)
+
+	schedule := &ScheduleConfig{}
+	schedule.adjust(emptyConfigMetaData)
+	c.Assert(schedule.Clone(), DeepEquals, schedule)
+
+	replication := &ReplicationConfig{}
+	replication.adjust(emptyConfigMetaData)
+	c.Assert(replication.Clone(), DeepEquals, replication)
+
+	pdServer := &PDServerConfig{}
+	pdServer.adjust(emptyConfigMetaData)
+	c.Assert(pdServer.Clone(), DeepEquals, pdServer)
+
+	replicationMode := &ReplicationModeConfig{}
+	replicationMode.adjust(emptyConfigMetaData)
+	c.Assert(replicationMode.Clone(), DeepEquals, replicationMode)
 }
