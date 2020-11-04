@@ -50,8 +50,8 @@ type StoreInfo struct {
 	available           map[storelimit.Type]func() bool
 	avgAvailableSize    *HMA
 	avgUsedSize         *HMA
-	avaiableDeviation   *MaxFilter
-	usedDeviation       *MaxFilter
+	avaiableDeviation   *HMA
+	usedDeviation       *HMA
 }
 
 // NewStoreInfo creates StoreInfo with meta data.
@@ -63,8 +63,8 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 		regionWeight:      1.0,
 		avgAvailableSize:  NewHMA(240),
 		avgUsedSize:       NewHMA(240),
-		avaiableDeviation: NewMaxFilter(120),
-		usedDeviation:     NewMaxFilter(120),
+		avaiableDeviation: NewHMA(120),
+		usedDeviation:     NewHMA(120),
 	}
 	for _, opt := range opts {
 		opt(storeInfo)
@@ -208,28 +208,27 @@ func (s *StoreInfo) GetAvailable() uint64 {
 
 // GetAvgAvailable returns average value for 20 minutes.
 func (s *StoreInfo) GetAvgAvailable() uint64 {
-	v := s.avgAvailableSize.Get()
-	if v <= 0 {
-		return 0
-	}
-	return uint64(v)
+	return climp0(s.avgAvailableSize.Get())
 }
 
 // GetAvgUsed returns average value for 20 minutes.
 func (s *StoreInfo) GetAvgUsed() uint64 {
-	v := s.avgUsedSize.Get()
+	return climp0(s.avgUsedSize.Get())
+}
+
+func (s *StoreInfo) GetAvailableDeviation() uint64 {
+	return climp0(s.avaiableDeviation.Get())
+}
+
+func (s *StoreInfo) GetUsedDeviation() uint64 {
+	return climp0(s.usedDeviation.Get())
+}
+
+func climp0(v float64) uint64 {
 	if v <= 0 {
 		return 0
 	}
 	return uint64(v)
-}
-
-func (s *StoreInfo) GetAvailableDeviation() uint64 {
-	return uint64(s.avaiableDeviation.Get())
-}
-
-func (s *StoreInfo) GetUsedDeviation() uint64 {
-	return uint64(s.usedDeviation.Get())
 }
 
 // GetUsedSize returns the used size of the store.
