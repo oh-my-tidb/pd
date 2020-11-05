@@ -104,7 +104,10 @@ func (s *storeStatistics) Observe(store *core.StoreInfo, stats *StoresStats) {
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_capacity").Set(float64(store.GetCapacity()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_avg_available").Set(float64(store.GetAvgAvailable()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_avg_used").Set(float64(store.GetAvgUsed()))
-	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available_deviation").Set(float64(store.GetAvailableDeviation()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available_deviation_h").Set(float64(store.GetAvailableDeviationH()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available_deviation_m").Set(float64(store.GetAvailableDeviationM()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available_deviation_mh").Set(float64(store.GetAvailableDeviationMH()))
+
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_used_deviation").Set(float64(store.GetUsedDeviation()))
 
 	// Store flows.

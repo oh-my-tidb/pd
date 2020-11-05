@@ -36,35 +36,39 @@ const (
 
 // StoreInfo contains information about a store.
 type StoreInfo struct {
-	meta                *metapb.Store
-	stats               *pdpb.StoreStats
-	pauseLeaderTransfer bool // not allow to be used as source or target of transfer leader
-	leaderCount         int
-	regionCount         int
-	leaderSize          int64
-	regionSize          int64
-	pendingPeerCount    int
-	lastPersistTime     time.Time
-	leaderWeight        float64
-	regionWeight        float64
-	available           map[storelimit.Type]func() bool
-	avgAvailableSize    *HMA
-	avgUsedSize         *HMA
-	avaiableDeviation   *HMA
-	usedDeviation       *HMA
+	meta                 *metapb.Store
+	stats                *pdpb.StoreStats
+	pauseLeaderTransfer  bool // not allow to be used as source or target of transfer leader
+	leaderCount          int
+	regionCount          int
+	leaderSize           int64
+	regionSize           int64
+	pendingPeerCount     int
+	lastPersistTime      time.Time
+	leaderWeight         float64
+	regionWeight         float64
+	available            map[storelimit.Type]func() bool
+	avgAvailableSize     *HMA
+	avgUsedSize          *HMA
+	availableDeviationH  *HMA
+	availableDeviationM  *MaxFilter
+	availableDeviationMH *HMA
+	usedDeviation        *HMA
 }
 
 // NewStoreInfo creates StoreInfo with meta data.
 func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 	storeInfo := &StoreInfo{
-		meta:              store,
-		stats:             &pdpb.StoreStats{},
-		leaderWeight:      1.0,
-		regionWeight:      1.0,
-		avgAvailableSize:  NewHMA(240),
-		avgUsedSize:       NewHMA(240),
-		avaiableDeviation: NewHMA(120),
-		usedDeviation:     NewHMA(120),
+		meta:                 store,
+		stats:                &pdpb.StoreStats{},
+		leaderWeight:         1.0,
+		regionWeight:         1.0,
+		avgAvailableSize:     NewHMA(240),
+		avgUsedSize:          NewHMA(240),
+		availableDeviationH:  NewHMA(120),
+		availableDeviationM:  NewMaxFilter(120),
+		availableDeviationMH: NewHMA(120),
+		usedDeviation:        NewHMA(120),
 	}
 	for _, opt := range opts {
 		opt(storeInfo)
@@ -76,22 +80,24 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 func (s *StoreInfo) Clone(opts ...StoreCreateOption) *StoreInfo {
 	meta := proto.Clone(s.meta).(*metapb.Store)
 	store := &StoreInfo{
-		meta:                meta,
-		stats:               s.stats,
-		pauseLeaderTransfer: s.pauseLeaderTransfer,
-		leaderCount:         s.leaderCount,
-		regionCount:         s.regionCount,
-		leaderSize:          s.leaderSize,
-		regionSize:          s.regionSize,
-		pendingPeerCount:    s.pendingPeerCount,
-		lastPersistTime:     s.lastPersistTime,
-		leaderWeight:        s.leaderWeight,
-		regionWeight:        s.regionWeight,
-		available:           s.available,
-		avgAvailableSize:    s.avgAvailableSize.Copy(),
-		avgUsedSize:         s.avgUsedSize.Copy(),
-		avaiableDeviation:   s.avaiableDeviation.Copy(),
-		usedDeviation:       s.usedDeviation.Copy(),
+		meta:                 meta,
+		stats:                s.stats,
+		pauseLeaderTransfer:  s.pauseLeaderTransfer,
+		leaderCount:          s.leaderCount,
+		regionCount:          s.regionCount,
+		leaderSize:           s.leaderSize,
+		regionSize:           s.regionSize,
+		pendingPeerCount:     s.pendingPeerCount,
+		lastPersistTime:      s.lastPersistTime,
+		leaderWeight:         s.leaderWeight,
+		regionWeight:         s.regionWeight,
+		available:            s.available,
+		avgAvailableSize:     s.avgAvailableSize.Copy(),
+		avgUsedSize:          s.avgUsedSize.Copy(),
+		availableDeviationH:  s.availableDeviationH.Copy(),
+		availableDeviationM:  s.availableDeviationM.Copy(),
+		availableDeviationMH: s.availableDeviationMH.Copy(),
+		usedDeviation:        s.usedDeviation.Copy(),
 	}
 
 	for _, opt := range opts {
@@ -103,22 +109,24 @@ func (s *StoreInfo) Clone(opts ...StoreCreateOption) *StoreInfo {
 // ShallowClone creates a copy of current StoreInfo, but not clone 'meta'.
 func (s *StoreInfo) ShallowClone(opts ...StoreCreateOption) *StoreInfo {
 	store := &StoreInfo{
-		meta:                s.meta,
-		stats:               s.stats,
-		pauseLeaderTransfer: s.pauseLeaderTransfer,
-		leaderCount:         s.leaderCount,
-		regionCount:         s.regionCount,
-		leaderSize:          s.leaderSize,
-		regionSize:          s.regionSize,
-		pendingPeerCount:    s.pendingPeerCount,
-		lastPersistTime:     s.lastPersistTime,
-		leaderWeight:        s.leaderWeight,
-		regionWeight:        s.regionWeight,
-		available:           s.available,
-		avgAvailableSize:    s.avgAvailableSize,
-		avgUsedSize:         s.avgUsedSize,
-		avaiableDeviation:   s.avaiableDeviation,
-		usedDeviation:       s.usedDeviation,
+		meta:                 s.meta,
+		stats:                s.stats,
+		pauseLeaderTransfer:  s.pauseLeaderTransfer,
+		leaderCount:          s.leaderCount,
+		regionCount:          s.regionCount,
+		leaderSize:           s.leaderSize,
+		regionSize:           s.regionSize,
+		pendingPeerCount:     s.pendingPeerCount,
+		lastPersistTime:      s.lastPersistTime,
+		leaderWeight:         s.leaderWeight,
+		regionWeight:         s.regionWeight,
+		available:            s.available,
+		avgAvailableSize:     s.avgAvailableSize,
+		avgUsedSize:          s.avgUsedSize,
+		availableDeviationH:  s.availableDeviationH,
+		availableDeviationM:  s.availableDeviationM,
+		availableDeviationMH: s.availableDeviationMH,
+		usedDeviation:        s.usedDeviation,
 	}
 
 	for _, opt := range opts {
@@ -216,8 +224,16 @@ func (s *StoreInfo) GetAvgUsed() uint64 {
 	return climp0(s.avgUsedSize.Get())
 }
 
-func (s *StoreInfo) GetAvailableDeviation() uint64 {
-	return climp0(s.avaiableDeviation.Get())
+func (s *StoreInfo) GetAvailableDeviationH() uint64 {
+	return climp0(s.availableDeviationH.Get())
+}
+
+func (s *StoreInfo) GetAvailableDeviationM() uint64 {
+	return climp0(s.availableDeviationM.Get())
+}
+
+func (s *StoreInfo) GetAvailableDeviationMH() uint64 {
+	return climp0(s.availableDeviationMH.Get())
 }
 
 func (s *StoreInfo) GetUsedDeviation() uint64 {
@@ -338,7 +354,7 @@ func (s *StoreInfo) LeaderScore(policy SchedulePolicy, delta int64) float64 {
 
 // RegionScore returns the store's region score.
 func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
-	available := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviation())) / gb
+	available := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviationMH())) / gb
 	capacity := float64(s.GetCapacity()) / gb
 	score := float64(s.GetRegionSize() + delta)
 	if available < capacity {
