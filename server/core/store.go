@@ -364,7 +364,7 @@ func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int
 	if A > C {
 		score = R
 	} else if A > F {
-		score = (K + M*(math.Log(C)-math.Log(A-F+1))/(C-A-F+1)) * R
+		score = (K + M*(math.Log(C)-math.Log(A-F+1))/(C-A+F-1)) * R
 	} else {
 		score = (K+M*math.Log(C)/C)*R + (F-A)*(K+M*math.Log(F)/F)
 	}
