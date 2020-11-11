@@ -119,7 +119,7 @@ func (f *hotPeerCache) collectRegionMetrics(byteRate, keyRate float64, interval 
 }
 
 // CheckRegionFlow checks the flow information of region.
-func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerStat) {
+func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret []*HotPeerStat) {
 	bytes := float64(f.getRegionBytes(region))
 	keys := float64(f.getRegionKeys(region))
 
@@ -128,8 +128,6 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 
 	byteRate := bytes / float64(interval)
 	keyRate := keys / float64(interval)
-
-	f.collectRegionMetrics(byteRate, keyRate, interval)
 
 	f.collectRegionMetrics(byteRate, keyRate, interval)
 
@@ -175,7 +173,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 			}
 		}
 
-		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval))
+		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval), typ)
 		if newItem != nil {
 			ret = append(ret, newItem)
 		}
@@ -315,7 +313,7 @@ func (f *hotPeerCache) getDefaultTimeMedian() *TimeMedian {
 	return NewTimeMedian(DefaultAotSize, rollingWindowsSize, RegionHeartBeatReportInterval)
 }
 
-func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration) *HotPeerStat {
+func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration, typ string) *HotPeerStat {
 	thresholds := f.calcHotThresholds(newItem.StoreID)
 	isHot := newItem.ByteRate >= thresholds[byteDim] || // if interval is zero, rate will be NaN, isHot will be false
 		newItem.KeyRate >= thresholds[keyDim]
@@ -348,6 +346,6 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 	}
 	newItem.RollingByteRate.Add(bytes, interval*time.Second)
 	newItem.RollingKeyRate.Add(keys, interval*time.Second)
-
+	hotPeerInfo.WithLabelValues(typ).Observe(float64(newItem.HotDegree))
 	return newItem
 }

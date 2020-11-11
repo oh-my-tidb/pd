@@ -121,6 +121,15 @@ var (
 		})
 )
 
+var hotPeerInfo = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Namespace: "pd",
+		Subsystem: "scheduler",
+		Name:      "hot_peer_info",
+		Help:      "Bucketed histogram of hot",
+		Buckets:   prometheus.ExponentialBuckets(1, 2, 8),
+	}, []string{"type"})
+
 func init() {
 	prometheus.MustRegister(hotCacheStatusGauge)
 	prometheus.MustRegister(storeStatusGauge)
@@ -135,4 +144,5 @@ func init() {
 	prometheus.MustRegister(writeByteHist)
 	prometheus.MustRegister(regionHeartbeatIntervalHist)
 	prometheus.MustRegister(storeHeartbeatIntervalHist)
+	prometheus.MustRegister(hotPeerInfo)
 }

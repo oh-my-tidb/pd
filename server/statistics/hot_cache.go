@@ -39,12 +39,12 @@ func NewHotCache() *HotCache {
 
 // CheckWrite checks the write status, returns update items.
 func (w *HotCache) CheckWrite(region *core.RegionInfo) []*HotPeerStat {
-	return w.writeFlow.CheckRegionFlow(region)
+	return w.writeFlow.CheckRegionFlow(region, "write")
 }
 
 // CheckRead checks the read status, returns update items.
 func (w *HotCache) CheckRead(region *core.RegionInfo) []*HotPeerStat {
-	return w.readFlow.CheckRegionFlow(region)
+	return w.readFlow.CheckRegionFlow(region, "read")
 }
 
 // Update updates the cache.
