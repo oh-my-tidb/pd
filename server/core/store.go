@@ -67,7 +67,7 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 		avgUsedSize:          NewHMA(240),
 		availableDeviationH:  NewHMA(120),
 		availableDeviationM:  NewMaxFilter(120),
-		availableDeviationMH: NewHMA(120),
+		availableDeviationMH: NewHMA(60),
 		usedDeviation:        NewHMA(120),
 	}
 	for _, opt := range opts {
@@ -354,11 +354,19 @@ func (s *StoreInfo) LeaderScore(policy SchedulePolicy, delta int64) float64 {
 
 // RegionScore returns the store's region score.
 func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
-	available := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviationMH())) / gb
-	capacity := float64(s.GetCapacity()) / gb
-	score := float64(s.GetRegionSize() + delta)
-	if available < capacity {
-		score *= (1 + 256*(math.Log(capacity)-math.Log(available))/(capacity-available))
+	A := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviationM())) / gb
+	C := float64(s.GetCapacity()) / gb
+	R := float64(s.GetRegionSize() + delta)
+	var K float64 = 1
+	var M float64 = 256
+	var F float64 = 20
+	var score float64
+	if A > C {
+		score = R
+	} else if A > F {
+		score = (K + M*(math.Log(C)-math.Log(A-F+1))/(C-A-F+1)) * R
+	} else {
+		score = (K+M*math.Log(C)/C)*R + (F-A)*(K+M*math.Log(F)/F)
 	}
 
 	// var score float64
