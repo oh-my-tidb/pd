@@ -14,6 +14,8 @@
 package statistics
 
 import (
+	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"math"
 	"time"
 
@@ -105,6 +107,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 
 func (f *hotPeerCache) collectRegionMetrics(byteRate, keyRate float64, interval uint64) {
 	regionHeartbeatIntervalHist.Observe(float64(interval))
+	log.Info("region heartbeat interval",zap.Uint64("interval",interval))
 	if interval == 0 {
 		return
 	}
