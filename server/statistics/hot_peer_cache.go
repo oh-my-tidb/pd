@@ -342,6 +342,8 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		newItem.RollingByteRate = oldItem.RollingByteRate
 		newItem.RollingKeyRate = oldItem.RollingKeyRate
 		if interval == 0 {
+			newItem.HotDegree = oldItem.HotDegree
+			newItem.AntiCount = hotRegionAntiCount
 			return newItem
 		}
 		if isHot {
