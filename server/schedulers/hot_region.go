@@ -457,7 +457,7 @@ func (h *hotScheduler) addPendingInfluence(op *operator.Operator, srcStore, dstS
 		h.regionPendings[regionID] = tmp
 	}
 
-	schedulerStatus.WithLabelValues(h.GetName(), "pending_op_create").Inc()
+	schedulerStatus.WithLabelValues(h.GetName(), "pending_op_infos").Inc()
 	return true
 }
 

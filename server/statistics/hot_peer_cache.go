@@ -14,7 +14,7 @@
 package statistics
 
 import (
-	log "github.com/sirupsen/logrus"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"math"
 	"time"
@@ -107,7 +107,6 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 
 func (f *hotPeerCache) collectRegionMetrics(byteRate, keyRate float64, interval uint64) {
 	regionHeartbeatIntervalHist.Observe(float64(interval))
-	log.Info("region heartbeat interval",zap.Uint64("interval",interval))
 	if interval == 0 {
 		return
 	}
@@ -133,6 +132,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 	keyRate := keys / float64(interval)
 
 	f.collectRegionMetrics(byteRate, keyRate, interval)
+	hotdegree, hotRegionAntiCount := 0, 0
 
 	// old region is in the front and new region is in the back
 	// which ensures it will hit the cache if moving peer or transfer leader occurs with the same replica number
@@ -179,8 +179,21 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval), typ)
 		if newItem != nil {
 			ret = append(ret, newItem)
+			hotdegree = newItem.HotDegree
+			hotRegionAntiCount = newItem.AntiCount
 		}
 	}
+
+	log.Info("region heartbeat interval",
+		zap.Uint64("interval", interval),
+		zap.Uint64("region", region.GetID()),
+		zap.Uint64("store", region.GetLeader().StoreId),
+		zap.Uint64("epoch", region.GetRegionEpoch().Version),
+		zap.Float64("byteRate", bytes),
+		zap.Float64("keyRate", keys),
+		zap.Int("hotdegree", hotdegree),
+		zap.Int("hotRegionAntiCount", hotRegionAntiCount),
+		zap.String("type", f.kind.String()))
 
 	return ret
 }
@@ -328,10 +341,13 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 	if oldItem != nil {
 		newItem.RollingByteRate = oldItem.RollingByteRate
 		newItem.RollingKeyRate = oldItem.RollingKeyRate
+		if interval == 0 {
+			return newItem
+		}
 		if isHot {
 			newItem.HotDegree = oldItem.HotDegree + 1
 			newItem.AntiCount = hotRegionAntiCount
-		} else if interval != 0 {
+		} else {
 			newItem.HotDegree = oldItem.HotDegree - 1
 			newItem.AntiCount = oldItem.AntiCount - 1
 			if newItem.AntiCount <= 0 {
