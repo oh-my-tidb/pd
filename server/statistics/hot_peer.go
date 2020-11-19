@@ -107,3 +107,4 @@ func (stat *HotPeerStat) Clone() *HotPeerStat {
 	ret.RollingKeyRate = nil
 	return &ret
 }
+

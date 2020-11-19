@@ -68,6 +68,7 @@ func (aot *AvgOverTime) Add(delta float64, interval time.Duration) {
 	aot.que.PushBack(deltaWithInterval{delta, interval})
 	aot.deltaSum += delta
 	aot.intervalSum += interval
+	if in
 }
 
 // Set sets AvgOverTime to the given average.
@@ -83,24 +84,28 @@ func (aot *AvgOverTime) Set(avg float64) {
 // Delay is aotSize * mfSize * StoreHeartBeatReportInterval/2
 // and the min filled period is aotSize * StoreHeartBeatReportInterval, which is not related with mfSize
 type TimeMedian struct {
-	aotInterval   time.Duration
-	aot           *AvgOverTime
-	mf            *MedianFilter
-	aotSize       int
-	mfSize        int
-	instantaneous float64
+	aotInterval    time.Duration
+	reportInterval time.Duration
+	aot            *AvgOverTime
+	mf             *MedianFilter
+	aotSize        int
+	mfSize         int
+	instantaneous  float64
+	average_num    float64
+	aotIsFull      bool
 }
 
 // NewTimeMedian returns a TimeMedian with given size.
 func NewTimeMedian(aotSize, mfSize, reportInterval int) *TimeMedian {
 	interval := time.Duration(aotSize*reportInterval) * time.Second
 	return &TimeMedian{
-		aotInterval:   interval,
-		aot:           NewAvgOverTime(interval),
-		mf:            NewMedianFilter(mfSize),
-		aotSize:       aotSize,
-		mfSize:        mfSize,
-		instantaneous: 0.0,
+		aotInterval:    interval,
+		reportInterval: time.Duration(reportInterval) * time.Second,
+		aot:            NewAvgOverTime(interval),
+		mf:             NewMedianFilter(mfSize),
+		aotSize:        aotSize,
+		mfSize:         mfSize,
+		instantaneous:  0.0,
 	}
 }
 
@@ -111,14 +116,16 @@ func (t *TimeMedian) Get() float64 {
 
 // Add adds recent change to TimeMedian.
 func (t *TimeMedian) Add(delta float64, interval time.Duration) {
-	if interval < time.Second {
-		return
-	}
 	t.instantaneous = delta / interval.Seconds()
 	t.aot.Add(delta, interval)
+	t.aotIsFull = false
+
 	if t.aot.intervalSum >= t.aotInterval {
-		t.mf.Add(t.aot.Get())
+		t.average_num = t.aot.Get()
+		t.aotIsFull = true
+		t.mf.Add(t.average_num)
 		t.aot.Clear()
+		return
 	}
 }
 
@@ -136,4 +143,12 @@ func (t *TimeMedian) GetFilledPeriod() int { // it is unrelated with mfSize
 // GetInstantaneous returns the returns a instantaneous speed
 func (t *TimeMedian) GetInstantaneous() float64 {
 	return t.instantaneous
+}
+
+func (t *TimeMedian) IsAotFull() bool {
+	return t.aotIsFull
+}
+
+func (t *TimeMedian) GetAverageNum() float64 {
+	return t.average_num
 }
