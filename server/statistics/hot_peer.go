@@ -25,6 +25,37 @@ const (
 	dimLen
 )
 
+type dimStat struct {
+	typ         int
+	Rolling     *movingaverage.TimeMedian
+	LastAverage *movingaverage.AvgOverTime
+}
+
+func newDimStat(typ int) *dimStat {
+	return &dimStat{
+		typ:         typ,
+		Rolling:     movingaverage.NewTimeMedian(DefaultAotSize, rollingWindowsSize, RegionHeartBeatReportInterval),
+		LastAverage: movingaverage.NewAvgOverTime(RegionHeartBeatReportInterval),
+	}
+}
+
+func (d *dimStat) Add(delta float64, interval time.Duration) {
+	d.LastAverage.Add(delta, interval)
+	d.Rolling.Add(delta, interval)
+}
+
+func (d *dimStat) isHot(thresholds [dimLen]float64) bool {
+	return d.LastAverage.IsFull() && d.LastAverage.Get() >= thresholds[d.typ]
+}
+
+func (d *dimStat) isFull() bool {
+	return d.LastAverage.IsFull()
+}
+
+func (d *dimStat) Get() float64 {
+	return d.Rolling.Get()
+}
+
 // HotPeerStat records each hot peer's statistics
 type HotPeerStat struct {
 	StoreID  uint64 `json:"store_id"`
@@ -40,8 +71,8 @@ type HotPeerStat struct {
 	KeyRate  float64  `json:"flow_keys"`
 
 	// rolling statistics, recording some recently added records.
-	RollingByteRate *movingaverage.TimeMedian
-	RollingKeyRate  *movingaverage.TimeMedian
+	RollingByteRate *dimStat
+	RollingKeyRate  *dimStat
 
 	// LastUpdateTime used to calculate average write
 	LastUpdateTime time.Time `json:"last_update_time"`
@@ -112,3 +143,6 @@ func (stat *HotPeerStat) Clone() *HotPeerStat {
 	return &ret
 }
 
+func (stat *HotPeerStat) isHot(thresholds [dimLen]float64) bool {
+	return stat.RollingByteRate.isHot(thresholds) || stat.RollingKeyRate.isHot(thresholds)
+}

@@ -177,7 +177,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 			}
 		}
 
-		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval), typ)
+		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, typ)
 		if newItem != nil {
 			ret = append(ret, newItem)
 			hotdegree = newItem.HotDegree
@@ -352,25 +352,24 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 			newItem.AntiCount = hotRegionAntiCount
 		}
 		newItem.isNew = true
-		newItem.RollingByteRate = f.getDefaultTimeMedian()
-		newItem.RollingKeyRate = f.getDefaultTimeMedian()
-		newItem.RollingByteRate.Add(bytes, interval*time.Second)
-		newItem.RollingKeyRate.Add(keys, interval*time.Second)
+		newItem.RollingByteRate = newDimStat(byteDim)
+		newItem.RollingKeyRate = newDimStat(keyDim)
+		newItem.RollingByteRate.Add(bytes, interval)
+		newItem.RollingKeyRate.Add(keys, interval)
 		return newItem
 	}
 
 	newItem.RollingByteRate = oldItem.RollingByteRate
 	newItem.RollingKeyRate = oldItem.RollingKeyRate
-	newItem.RollingByteRate.Add(bytes, interval*time.Second)
-	newItem.RollingKeyRate.Add(keys, interval*time.Second)
+	newItem.RollingByteRate.Add(bytes, interval)
+	newItem.RollingKeyRate.Add(keys, interval)
 
-	if !newItem.RollingKeyRate.IsAotFull() {
+	if !newItem.RollingKeyRate.isFull() {
 		// not update hot degree and anti count
 		newItem.HotDegree = oldItem.HotDegree
 		newItem.AntiCount = oldItem.AntiCount
 	} else {
-		isHot := newItem.RollingKeyRate.GetAverageNum() >= thresholds[keyDim] || newItem.RollingByteRate.GetAverageNum() >= thresholds[byteDim]
-		if isHot {
+		if newItem.isHot(thresholds) {
 			newItem.HotDegree = oldItem.HotDegree + 1
 			newItem.AntiCount = hotRegionAntiCount
 		} else {
