@@ -32,10 +32,11 @@ type dimStat struct {
 }
 
 func newDimStat(typ int) *dimStat {
+	reportInterval := time.Duration(RegionHeartBeatReportInterval) * time.Second
 	return &dimStat{
 		typ:         typ,
-		Rolling:     movingaverage.NewTimeMedian(DefaultAotSize, rollingWindowsSize, RegionHeartBeatReportInterval),
-		LastAverage: movingaverage.NewAvgOverTime(RegionHeartBeatReportInterval),
+		Rolling:     movingaverage.NewTimeMedian(DefaultAotSize, rollingWindowsSize, reportInterval),
+		LastAverage: movingaverage.NewAvgOverTime(reportInterval),
 	}
 }
 
@@ -50,6 +51,10 @@ func (d *dimStat) isHot(thresholds [dimLen]float64) bool {
 
 func (d *dimStat) isFull() bool {
 	return d.LastAverage.IsFull()
+}
+
+func (d *dimStat) clearLastAverage(){
+	d.LastAverage.Clear()
 }
 
 func (d *dimStat) Get() float64 {
@@ -145,4 +150,9 @@ func (stat *HotPeerStat) Clone() *HotPeerStat {
 
 func (stat *HotPeerStat) isHot(thresholds [dimLen]float64) bool {
 	return stat.RollingByteRate.isHot(thresholds) || stat.RollingKeyRate.isHot(thresholds)
+}
+
+func (stat *HotPeerStat) clearLastAverage(){
+	stat.RollingByteRate.clearLastAverage()
+	stat.RollingKeyRate.clearLastAverage()
 }

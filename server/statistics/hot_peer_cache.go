@@ -176,8 +176,8 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 				}
 			}
 		}
-
-		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, typ)
+		thresholds := f.calcHotThresholds(newItem.StoreID)
+		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, typ, thresholds)
 		if newItem != nil {
 			ret = append(ret, newItem)
 			hotdegree = newItem.HotDegree
@@ -332,19 +332,17 @@ func (f *hotPeerCache) getDefaultTimeMedian() *movingaverage.TimeMedian {
 	return movingaverage.NewTimeMedian(DefaultAotSize, rollingWindowsSize, RegionHeartBeatReportInterval)
 }
 
-func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration, typ string) *HotPeerStat {
-	if newItem.needDelete {
+func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration, typ string, thresholds [2]float64) *HotPeerStat {
+	if newItem == nil || newItem.needDelete {
 		return newItem
 	}
-	thresholds := f.calcHotThresholds(newItem.StoreID)
 
 	if oldItem == nil {
 		if interval == 0 {
 			return nil
 		}
-
-		if interval >= RegionHeartBeatReportInterval {
-			isHot := newItem.ByteRate >= thresholds[byteDim] || newItem.KeyRate >= thresholds[keyDim]
+		if interval.Seconds() >= RegionHeartBeatReportInterval {
+			isHot := bytes/interval.Seconds() >= thresholds[byteDim] || keys/interval.Seconds() >= thresholds[keyDim]
 			if !isHot {
 				return nil
 			}
@@ -356,6 +354,9 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		newItem.RollingKeyRate = newDimStat(keyDim)
 		newItem.RollingByteRate.Add(bytes, interval)
 		newItem.RollingKeyRate.Add(keys, interval)
+		if newItem.RollingKeyRate.isFull(){
+			newItem.clearLastAverage()
+		}
 		return newItem
 	}
 
@@ -379,6 +380,7 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 				newItem.needDelete = true
 			}
 		}
+		newItem.clearLastAverage()
 	}
 	hotPeerInfo.WithLabelValues(typ).Observe(float64(newItem.HotDegree))
 	return newItem
