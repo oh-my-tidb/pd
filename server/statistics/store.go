@@ -382,7 +382,6 @@ func (r *RollingStoreStats) GetBytesRateInstantaneous() (writeRate float64, read
 	return r.bytesWriteRate.GetInstantaneous(), r.bytesReadRate.GetInstantaneous()
 }
 
-
 // GetBytesWriteRate returns the bytes write rate.
 func (r *RollingStoreStats) GetBytesWriteRate() float64 {
 	r.RLock()
@@ -410,7 +409,6 @@ func (r *RollingStoreStats) GetKeysRateInstantaneous() (writeRate float64, readR
 	defer r.RUnlock()
 	return r.keysWriteRate.GetInstantaneous(), r.keysReadRate.GetInstantaneous()
 }
-
 
 // GetKeysWriteRate returns the keys write rate.
 func (r *RollingStoreStats) GetKeysWriteRate() float64 {
