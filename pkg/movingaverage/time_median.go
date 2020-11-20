@@ -32,7 +32,7 @@ type TimeMedian struct {
 func NewTimeMedian(aotSize, mfSize int, reportInterval time.Duration) *TimeMedian {
 	return &TimeMedian{
 		aotInterval: reportInterval,
-		aot:         NewAvgOverTime(reportInterval),
+		aot:         NewAvgOverTime(time.Duration(aotSize) * reportInterval),
 		mf:          NewMedianFilter(mfSize),
 		aotSize:     aotSize,
 		mfSize:      mfSize,
