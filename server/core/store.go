@@ -16,6 +16,7 @@ package core
 import (
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -352,23 +353,45 @@ func (s *StoreInfo) LeaderScore(policy SchedulePolicy, delta int64) float64 {
 	}
 }
 
+var maxCapMutex sync.RWMutex
+var maxCap uint64
+
+func getMaxCap(cap uint64) uint64 {
+	maxCapMutex.Lock()
+	defer maxCapMutex.Unlock()
+	if cap > maxCap {
+		maxCap = cap
+	}
+	return maxCap
+}
+
 // RegionScore returns the store's region score.
 func (s *StoreInfo) RegionScore(highSpaceRatio, lowSpaceRatio float64, delta int64, divation int) float64 {
+	// 4代目
 	A := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviationM())) / gb
-	C := float64(s.GetCapacity()) / gb
-	R := float64(s.GetRegionSize() + delta)
-	var K float64 = 1
-	var M float64 = 256
-	var F float64 = 20
-	var score float64
-	if A > C {
-		score = R
-	} else if A > F {
-		score = (K + M*(math.Log(C)-math.Log(A-F+1))/(C-A+F-1)) * R
-	} else {
-		score = (K+M*math.Log(C)/C)*R + (F-A)*(K+M*math.Log(F)/F)
-	}
+	M := float64(getMaxCap(s.GetCapacity())) / gb
+	R := float64(s.GetRegionSize()+delta) / gb
+	var K1 float64 = 0.1
+	var K2 float64 = 4
+	score := 100.0 * (R/M + K1/math.Tanh(A*K2/M))
 
+	// 3代目
+	// A := float64(float64(s.GetAvgAvailable())-float64(divation)*float64(s.GetAvailableDeviationM())) / gb
+	// C := float64(s.GetCapacity()) / gb
+	// R := float64(s.GetRegionSize() + delta)
+	// var K float64 = 1
+	// var M float64 = 256
+	// var F float64 = 20
+	// var score float64
+	// if A > C {
+	// 	score = R
+	// } else if A > F {
+	// 	score = (K + M*(math.Log(C)-math.Log(A-F+1))/(C-A+F-1)) * R
+	// } else {
+	// 	score = (K+M*math.Log(C)/C)*R + (F-A)*(K+M*math.Log(F)/F)
+	// }
+
+	// 2代目
 	// var score float64
 	// var amplification float64
 	// available := (float64(s.GetAvgAvailable()) - float64(divation)*float64(s.GetAvailableDeviation())) / mb
