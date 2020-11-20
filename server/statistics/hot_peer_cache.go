@@ -354,7 +354,7 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		newItem.RollingKeyRate = newDimStat(keyDim)
 		newItem.RollingByteRate.Add(bytes, interval)
 		newItem.RollingKeyRate.Add(keys, interval)
-		if newItem.RollingKeyRate.isFull(){
+		if newItem.RollingKeyRate.isFull() {
 			newItem.clearLastAverage()
 		}
 		return newItem

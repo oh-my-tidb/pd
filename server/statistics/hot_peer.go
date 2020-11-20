@@ -53,7 +53,7 @@ func (d *dimStat) isFull() bool {
 	return d.LastAverage.IsFull()
 }
 
-func (d *dimStat) clearLastAverage(){
+func (d *dimStat) clearLastAverage() {
 	d.LastAverage.Clear()
 }
 
@@ -152,7 +152,7 @@ func (stat *HotPeerStat) isHot(thresholds [dimLen]float64) bool {
 	return stat.RollingByteRate.isHot(thresholds) || stat.RollingKeyRate.isHot(thresholds)
 }
 
-func (stat *HotPeerStat) clearLastAverage(){
+func (stat *HotPeerStat) clearLastAverage() {
 	stat.RollingByteRate.clearLastAverage()
 	stat.RollingKeyRate.clearLastAverage()
 }

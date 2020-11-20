@@ -63,6 +63,7 @@ func (t *TimeMedian) GetFilledPeriod() int { // it is unrelated with mfSize
 	return t.aotSize
 }
 
+// GetInstantaneous returns instantaneous speed
 func (t *TimeMedian) GetInstantaneous() float64 {
 	return t.instantaneous
 }
