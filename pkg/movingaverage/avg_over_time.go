@@ -14,8 +14,6 @@
 package movingaverage
 
 import (
-	"github.com/pingcap/log"
-	"go.uber.org/zap"
 	"time"
 
 	"github.com/phf/go-queue/queue"
@@ -96,6 +94,5 @@ func (aot *AvgOverTime) Set(avg float64) {
 
 // IsFull returns whether AvgOverTime is full
 func (aot *AvgOverTime) IsFull() bool {
-	log.Info("", zap.Duration("aot.intervalSum", aot.intervalSum), zap.Duration("aot.avgInterval", aot.avgInterval))
 	return aot.intervalSum >= aot.avgInterval
 }
