@@ -14,14 +14,14 @@
 package statistics
 
 import (
-	"github.com/pingcap/log"
-	"go.uber.org/zap"
 	"math"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/movingaverage"
 	"github.com/tikv/pd/server/core"
+	"go.uber.org/zap"
 )
 
 const (
@@ -89,7 +89,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 		if stores, ok := f.storesOfRegion[item.RegionID]; ok {
 			delete(stores, item.StoreID)
 		}
-		item.Log("delete from cache")
+		item.Log("delete from cache", log.Info)
 	} else {
 		peers, ok := f.peersOfStore[item.StoreID]
 		if !ok {
@@ -104,7 +104,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 			f.storesOfRegion[item.RegionID] = stores
 		}
 		stores[item.StoreID] = struct{}{}
-		item.Log("region heartbeat interval")
+		item.Log("region heartbeat interval", log.Info)
 	}
 }
 
@@ -124,7 +124,7 @@ func (f *hotPeerCache) collectRegionMetrics(byteRate, keyRate float64, interval 
 }
 
 // CheckRegionFlow checks the flow information of region.
-func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret []*HotPeerStat) {
+func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerStat) {
 
 	bytes := float64(f.getRegionBytes(region))
 	keys := float64(f.getRegionKeys(region))
@@ -146,7 +146,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 
 	var tmpItem *HotPeerStat
 	storeIDs := f.getAllStoreIDs(region)
-	isNewLeader := f.isNewLeader(region)
+	justTransferLeader := f.justTransferLeader(region)
 	for _, storeID := range storeIDs {
 		isExpired := f.isRegionExpired(region, storeID) // transfer read leader or remove write peer
 		oldItem := f.getOldHotPeerStat(region.GetID(), storeID)
@@ -160,18 +160,18 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 		}
 
 		newItem := &HotPeerStat{
-			StoreID:        storeID,
-			RegionID:       region.GetID(),
-			Kind:           f.kind,
-			ByteRate:       byteRate,
-			KeyRate:        keyRate,
-			LastUpdateTime: time.Now(),
-			Version:        region.GetMeta().GetRegionEpoch().GetVersion(),
-			needDelete:     isExpired,
-			isLeader:       region.GetLeader().GetStoreId() == storeID,
-			isNewLeader:    isNewLeader, //todo rename
-			interval:       interval,
-			peers:          peers,
+			StoreID:            storeID,
+			RegionID:           region.GetID(),
+			Kind:               f.kind,
+			ByteRate:           byteRate,
+			KeyRate:            keyRate,
+			LastUpdateTime:     time.Now(),
+			Version:            region.GetMeta().GetRegionEpoch().GetVersion(),
+			needDelete:         isExpired,
+			isLeader:           region.GetLeader().GetStoreId() == storeID,
+			justTransferLeader: justTransferLeader,
+			interval:           interval,
+			peers:              peers,
 		}
 
 		if oldItem == nil {
@@ -189,7 +189,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 
 		thresholds := f.calcHotThresholds(newItem.StoreID)
 
-		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, typ, thresholds)
+		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, thresholds)
 		if newItem != nil {
 			ret = append(ret, newItem)
 			if newItem.isLeader {
@@ -199,7 +199,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 	}
 
 	log.Info("region heartbeat",
-		zap.String("type", typ),
+		zap.String("type", f.kind.String()),
 		zap.Uint64("region", region.GetID()),
 		zap.Uint64("leader", region.GetLeader().GetStoreId()),
 		zap.Uint64s("peers", peers),
@@ -334,16 +334,18 @@ func (f *hotPeerCache) isOldColdPeer(oldItem *HotPeerStat, storeID uint64) bool 
 	return isOldPeer() && noInCache()
 }
 
-func (f *hotPeerCache) isNewLeader(region *core.RegionInfo) bool {
+func (f *hotPeerCache) justTransferLeader(region *core.RegionInfo) bool {
 	ids, ok := f.storesOfRegion[region.GetID()]
 	if ok {
 		for storeID := range ids {
 			oldItem := f.getOldHotPeerStat(region.GetID(), storeID)
+			if oldItem == nil {
+				continue
+			}
 			if oldItem.isLeader {
 				return oldItem.StoreID != region.GetLeader().GetStoreId()
 			}
 		}
-		log.Error("isNewLeader meets error")
 	}
 	return false
 }
@@ -374,7 +376,7 @@ func (f *hotPeerCache) getDefaultTimeMedian() *movingaverage.TimeMedian {
 	return movingaverage.NewTimeMedian(DefaultAotSize, rollingWindowsSize, RegionHeartBeatReportInterval)
 }
 
-func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration, typ string, thresholds [2]float64) *HotPeerStat {
+func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, keys float64, interval time.Duration, thresholds [2]float64) *HotPeerStat {
 	if newItem == nil || newItem.needDelete {
 		return newItem
 	}
@@ -405,7 +407,7 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 	newItem.RollingByteRate = oldItem.RollingByteRate
 	newItem.RollingKeyRate = oldItem.RollingKeyRate
 
-	if newItem.isNewLeader {
+	if newItem.justTransferLeader {
 		newItem.HotDegree = oldItem.HotDegree
 		newItem.AntiCount = oldItem.AntiCount
 		// skip the first heartbeat interval after transfer leader
@@ -421,13 +423,13 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		newItem.AntiCount = oldItem.AntiCount
 	} else {
 		if f.isOldColdPeer(oldItem, newItem.StoreID) {
-			if newItem.isHot(thresholds){
-				newItem.HotDegree =  1
+			if newItem.isHot(thresholds) {
+				newItem.HotDegree = 1
 				newItem.AntiCount = hotRegionAntiCount
-			}else{
+			} else {
 				newItem.needDelete = true
 			}
-		}else {
+		} else {
 			if newItem.isHot(thresholds) {
 				newItem.HotDegree = oldItem.HotDegree + 1
 				newItem.AntiCount = hotRegionAntiCount
@@ -441,6 +443,6 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		}
 		newItem.clearLastAverage()
 	}
-	hotPeerInfo.WithLabelValues(typ).Observe(float64(newItem.HotDegree))
+	hotPeerInfo.WithLabelValues(f.kind.String()).Observe(float64(newItem.HotDegree))
 	return newItem
 }

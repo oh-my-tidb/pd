@@ -14,11 +14,10 @@
 package statistics
 
 import (
-	"github.com/pingcap/log"
-	"go.uber.org/zap"
 	"time"
 
 	"github.com/tikv/pd/pkg/movingaverage"
+	"go.uber.org/zap"
 )
 
 const (
@@ -86,13 +85,13 @@ type HotPeerStat struct {
 	// Version used to check the region split times
 	Version uint64 `json:"version"`
 
-	needDelete    bool
-	isLeader      bool
-	isNew         bool
-	isNewLeader   bool
-	interval      uint64
-	thresholdsLog [2]float64
-	peers         []uint64
+	needDelete         bool
+	isLeader           bool
+	isNew              bool
+	justTransferLeader bool
+	interval           uint64
+	thresholdsLog      [2]float64
+	peers              []uint64
 }
 
 // ID returns region ID. Implementing TopNItem.
@@ -163,8 +162,9 @@ func (stat *HotPeerStat) clearLastAverage() {
 	stat.RollingKeyRate.clearLastAverage()
 }
 
-func (stat *HotPeerStat) Log(str string) {
-	log.Info(str,
+// Log is used to output some info
+func (stat *HotPeerStat) Log(str string, level func(msg string, fields ...zap.Field)) {
+	level(str,
 		zap.Uint64("interval", stat.interval),
 		zap.Uint64("region", stat.RegionID),
 		zap.Uint64("store", stat.StoreID),
@@ -175,7 +175,7 @@ func (stat *HotPeerStat) Log(str string) {
 		zap.Float64("keyRateTh", stat.thresholdsLog[keyDim]),
 		zap.Int("hotDegree", stat.HotDegree),
 		zap.Int("hotRegionAntiCount", stat.AntiCount),
-		zap.Bool("isNewLeader", stat.isNewLeader),
+		zap.Bool("justTransferLeader", stat.justTransferLeader),
 		zap.Bool("isLeader", stat.isLeader),
 		zap.Bool("needDelete", stat.needDelete),
 		zap.String("type", stat.Kind.String()))
