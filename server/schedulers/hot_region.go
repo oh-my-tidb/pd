@@ -208,10 +208,12 @@ func (h *hotScheduler) prepareForBalance(cluster opt.Cluster) {
 		regionRead := cluster.RegionReadStats()
 		storeByte := storesStat.GetStoresBytesReadStat()
 		storeKey := storesStat.GetStoresKeysReadStat()
+		storeWeight := storesStat.GetHotReadWeights()
 		hotRegionThreshold := getHotRegionThreshold(storesStat, read)
 		h.stLoadInfos[readLeader] = summaryStoresLoad(
 			storeByte,
 			storeKey,
+			storeWeight,
 			h.pendingSums[readLeader],
 			regionRead,
 			minHotDegree,
@@ -223,10 +225,12 @@ func (h *hotScheduler) prepareForBalance(cluster opt.Cluster) {
 		regionWrite := cluster.RegionWriteStats()
 		storeByte := storesStat.GetStoresBytesWriteStat()
 		storeKey := storesStat.GetStoresKeysWriteStat()
+		storeWeight := storesStat.GetHotWriteWeights()
 		hotRegionThreshold := getHotRegionThreshold(storesStat, write)
 		h.stLoadInfos[writeLeader] = summaryStoresLoad(
 			storeByte,
 			storeKey,
+			storeWeight,
 			h.pendingSums[writeLeader],
 			regionWrite,
 			minHotDegree,
@@ -236,6 +240,7 @@ func (h *hotScheduler) prepareForBalance(cluster opt.Cluster) {
 		h.stLoadInfos[writePeer] = summaryStoresLoad(
 			storeByte,
 			storeKey,
+			storeWeight,
 			h.pendingSums[writePeer],
 			regionWrite,
 			minHotDegree,
@@ -311,6 +316,7 @@ func (h *hotScheduler) gcRegionPendings() {
 func summaryStoresLoad(
 	storeByteRate map[uint64]float64,
 	storeKeyRate map[uint64]float64,
+	storeWeights map[uint64]float64,
 	storePendings map[uint64]Influence,
 	storeHotPeers map[uint64][]*statistics.HotPeerStat,
 	minHotDegree int,
@@ -324,6 +330,11 @@ func summaryStoresLoad(
 	allByteSum := 0.0
 	allKeySum := 0.0
 	allCount := 0.0
+
+	var totalWeight float64
+	for _, w := range storeWeights {
+		totalWeight += w
+	}
 
 	// Stores without byte rate statistics is not available to schedule.
 	for id, byteRate := range storeByteRate {
@@ -372,16 +383,16 @@ func summaryStoresLoad(
 			HotPeers: hotPeers,
 		}
 	}
-	storeLen := float64(len(storeByteRate))
 
 	// store expectation byte/key rate and count for each store-load detail.
 	for id, detail := range loadDetail {
-		byteExp := allByteSum / storeLen
-		keyExp := allKeySum / storeLen
-		countExp := allCount / storeLen
+		byteExp := allByteSum / totalWeight * storeWeights[id]
+		keyExp := allKeySum / totalWeight * storeWeights[id]
+		countExp := allCount / totalWeight * storeWeights[id]
 		detail.LoadPred.Future.ExpByteRate = byteExp
 		detail.LoadPred.Future.ExpKeyRate = keyExp
 		detail.LoadPred.Future.ExpCount = countExp
+		detail.LoadPred.Weight = storeWeights[id]
 		// Debug
 		{
 			ty := "exp-byte-rate-" + rwTy.String() + "-" + kind.String()
@@ -548,9 +559,9 @@ func (bs *balanceSolver) init() {
 	maxCur := &storeLoad{}
 
 	for _, detail := range bs.stLoadDetail {
-		bs.maxSrc = maxLoad(bs.maxSrc, detail.LoadPred.min())
-		bs.minDst = minLoad(bs.minDst, detail.LoadPred.max())
-		maxCur = maxLoad(maxCur, &detail.LoadPred.Current)
+		bs.maxSrc = maxLoad(bs.maxSrc, detail.LoadPred.min().PerWeight(detail.LoadPred.Weight))
+		bs.minDst = minLoad(bs.minDst, detail.LoadPred.max().PerWeight(detail.LoadPred.Weight))
+		maxCur = maxLoad(maxCur, detail.LoadPred.Current.PerWeight(detail.LoadPred.Weight))
 	}
 
 	bs.rankStep = &storeLoad{
@@ -844,12 +855,14 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*co
 func (bs *balanceSolver) calcProgressiveRank() {
 	srcLd := bs.stLoadDetail[bs.cur.srcStoreID].LoadPred.min()
 	dstLd := bs.stLoadDetail[bs.cur.dstStoreID].LoadPred.max()
+	srcWeight := bs.stLoadDetail[bs.cur.srcStoreID].LoadPred.Weight
+	dstWeight := bs.stLoadDetail[bs.cur.dstStoreID].LoadPred.Weight
 	peer := bs.cur.srcPeerStat
 	rank := int64(0)
 	if bs.rwTy == write && bs.opTy == transferLeader {
 		// In this condition, CPU usage is the matter.
 		// Only consider about key rate.
-		if srcLd.KeyRate >= dstLd.KeyRate+peer.GetKeyRate() {
+		if srcLd.KeyRate/srcWeight >= (dstLd.KeyRate+peer.GetKeyRate())/dstWeight {
 			rank = -1
 		}
 	} else {
@@ -861,9 +874,9 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		}
 		// we use DecRatio(Decline Ratio) to expect that the dst store's (key/byte) rate should still be less
 		// than the src store's (key/byte) rate after scheduling one peer.
-		keyDecRatio := (dstLd.KeyRate + peer.GetKeyRate()) / getSrcDecRate(srcLd.KeyRate, peer.GetKeyRate())
+		keyDecRatio := (dstLd.KeyRate + peer.GetKeyRate()) / dstWeight / getSrcDecRate(srcLd.KeyRate, peer.GetKeyRate()) * srcWeight
 		keyHot := peer.GetKeyRate() >= bs.sche.conf.GetMinHotKeyRate()
-		byteDecRatio := (dstLd.ByteRate + peer.GetByteRate()) / getSrcDecRate(srcLd.ByteRate, peer.GetByteRate())
+		byteDecRatio := (dstLd.ByteRate + peer.GetByteRate()) / dstWeight / getSrcDecRate(srcLd.ByteRate, peer.GetByteRate()) * srcWeight
 		byteHot := peer.GetByteRate() > bs.sche.conf.GetMinHotByteRate()
 		greatDecRatio, minorDecRatio := bs.sche.conf.GetGreatDecRatio(), bs.sche.conf.GetMinorGreatDecRatio()
 		switch {

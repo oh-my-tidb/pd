@@ -75,9 +75,9 @@ func (s *StoresStats) GetOrCreateRollingStoreStats(storeID uint64) *RollingStore
 }
 
 // Observe records the current store status with a given store.
-func (s *StoresStats) Observe(storeID uint64, stats *pdpb.StoreStats) {
+func (s *StoresStats) Observe(storeID uint64, stats *pdpb.StoreStats, hotReadWeight, hotWriteWeight float64) {
 	store := s.GetOrCreateRollingStoreStats(storeID)
-	store.Observe(stats)
+	store.Observe(stats, hotReadWeight, hotWriteWeight)
 }
 
 // Set sets the store statistics (for test).
@@ -261,6 +261,18 @@ func (s *StoresStats) GetStoresKeysReadStat() map[uint64]float64 {
 	})
 }
 
+func (s *StoresStats) GetHotReadWeights() map[uint64]float64 {
+	return s.getStat(func(stats *RollingStoreStats) float64 {
+		return stats.GetHotReadWeight()
+	})
+}
+
+func (s *StoresStats) GetHotWriteWeights() map[uint64]float64 {
+	return s.getStat(func(stats *RollingStoreStats) float64 {
+		return stats.GetHotWriteWeight()
+	})
+}
+
 func (s *StoresStats) getStat(getRate func(*RollingStoreStats) float64) map[uint64]float64 {
 	s.RLock()
 	defer s.RUnlock()
@@ -302,6 +314,8 @@ type RollingStoreStats struct {
 	totalCPUUsage           movingaverage.MovingAvg
 	totalBytesDiskReadRate  movingaverage.MovingAvg
 	totalBytesDiskWriteRate movingaverage.MovingAvg
+	hotReadWeight           float64
+	hotWriteWeight          float64
 }
 
 const (
@@ -336,7 +350,7 @@ func collect(records []*pdpb.RecordPair) float64 {
 }
 
 // Observe records current statistics.
-func (r *RollingStoreStats) Observe(stats *pdpb.StoreStats) {
+func (r *RollingStoreStats) Observe(stats *pdpb.StoreStats, hotReadWeight, hotWriteWeight float64) {
 	statInterval := stats.GetInterval()
 	interval := statInterval.GetEndTimestamp() - statInterval.GetStartTimestamp()
 	log.Debug("update store stats", zap.Uint64("key-write", stats.KeysWritten), zap.Uint64("bytes-write", stats.BytesWritten), zap.Duration("interval", time.Duration(interval)*time.Second), zap.Uint64("store-id", stats.GetStoreId()))
@@ -351,6 +365,9 @@ func (r *RollingStoreStats) Observe(stats *pdpb.StoreStats) {
 	r.totalCPUUsage.Add(collect(stats.GetCpuUsages()))
 	r.totalBytesDiskReadRate.Add(collect(stats.GetReadIoRates()))
 	r.totalBytesDiskWriteRate.Add(collect(stats.GetWriteIoRates()))
+
+	r.hotReadWeight = hotReadWeight
+	r.hotWriteWeight = hotWriteWeight
 }
 
 // Set sets the statistics (for test).
@@ -429,4 +446,16 @@ func (r *RollingStoreStats) GetDiskWriteRate() float64 {
 	r.RLock()
 	defer r.RUnlock()
 	return r.totalBytesDiskWriteRate.Get()
+}
+
+func (r *RollingStoreStats) GetHotReadWeight() float64 {
+	r.RLock()
+	defer r.RUnlock()
+	return r.hotReadWeight
+}
+
+func (r *RollingStoreStats) GetHotWriteWeight() float64 {
+	r.RLock()
+	defer r.RUnlock()
+	return r.hotWriteWeight
 }

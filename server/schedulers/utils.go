@@ -205,6 +205,17 @@ func (load *storeLoad) ToLoadPred(infl Influence) *storeLoadPred {
 	}
 }
 
+func (load *storeLoad) PerWeight(weight float64) *storeLoad {
+	return &storeLoad{
+		ByteRate:    load.ByteRate / weight,
+		KeyRate:     load.KeyRate / weight,
+		Count:       load.Count / weight,
+		ExpByteRate: load.ExpByteRate / weight,
+		ExpKeyRate:  load.ExpKeyRate / weight,
+		ExpCount:    load.ExpCount / weight,
+	}
+}
+
 func stLdByteRate(ld *storeLoad) float64 {
 	return ld.ByteRate
 }
@@ -256,6 +267,7 @@ func rankCmp(a, b float64, rank func(value float64) int64) int {
 type storeLoadPred struct {
 	Current storeLoad
 	Future  storeLoad
+	Weight  float64
 }
 
 func (lp *storeLoadPred) min() *storeLoad {
@@ -290,19 +302,19 @@ func sliceLPCmp(cmps ...storeLPCmp) storeLPCmp {
 
 func minLPCmp(ldCmp storeLoadCmp) storeLPCmp {
 	return func(lp1, lp2 *storeLoadPred) int {
-		return ldCmp(lp1.min(), lp2.min())
+		return ldCmp(lp1.min().PerWeight(lp1.Weight), lp2.min().PerWeight(lp2.Weight))
 	}
 }
 
 func maxLPCmp(ldCmp storeLoadCmp) storeLPCmp {
 	return func(lp1, lp2 *storeLoadPred) int {
-		return ldCmp(lp1.max(), lp2.max())
+		return ldCmp(lp1.max().PerWeight(lp1.Weight), lp2.max().PerWeight(lp2.Weight))
 	}
 }
 
 func diffCmp(ldCmp storeLoadCmp) storeLPCmp {
 	return func(lp1, lp2 *storeLoadPred) int {
-		return ldCmp(lp1.diff(), lp2.diff())
+		return ldCmp(lp1.diff().PerWeight(lp1.Weight), lp2.diff().PerWeight(lp2.Weight))
 	}
 }
 
