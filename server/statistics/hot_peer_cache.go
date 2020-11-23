@@ -89,6 +89,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 		if stores, ok := f.storesOfRegion[item.RegionID]; ok {
 			delete(stores, item.StoreID)
 		}
+		item.Log("delete from cache")
 	} else {
 		peers, ok := f.peersOfStore[item.StoreID]
 		if !ok {
@@ -103,6 +104,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 			f.storesOfRegion[item.RegionID] = stores
 		}
 		stores[item.StoreID] = struct{}{}
+		item.Log("region heartbeat interval")
 	}
 }
 
@@ -123,6 +125,7 @@ func (f *hotPeerCache) collectRegionMetrics(byteRate, keyRate float64, interval 
 
 // CheckRegionFlow checks the flow information of region.
 func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret []*HotPeerStat) {
+
 	bytes := float64(f.getRegionBytes(region))
 	keys := float64(f.getRegionKeys(region))
 
@@ -133,15 +136,19 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 	keyRate := keys / float64(interval)
 
 	f.collectRegionMetrics(byteRate, keyRate, interval)
-	hotdegree, hotRegionAntiCount := 0, 0
-	isNew := false
 	// old region is in the front and new region is in the back
 	// which ensures it will hit the cache if moving peer or transfer leader occurs with the same replica number
 
+	var peers []uint64
+	for _, peer := range region.GetPeers() {
+		peers = append(peers, peer.StoreId)
+	}
+
 	var tmpItem *HotPeerStat
 	storeIDs := f.getAllStoreIDs(region)
+	isNewLeader := f.isNewLeader(region)
 	for _, storeID := range storeIDs {
-		isExpired := f.isRegionExpired(region, storeID) // transfer leader or remove peer
+		isExpired := f.isRegionExpired(region, storeID) // transfer read leader or remove write peer
 		oldItem := f.getOldHotPeerStat(region.GetID(), storeID)
 		if isExpired && oldItem != nil { // it may has been moved to other store, we save it to tmpItem
 			tmpItem = oldItem
@@ -162,6 +169,9 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 			Version:        region.GetMeta().GetRegionEpoch().GetVersion(),
 			needDelete:     isExpired,
 			isLeader:       region.GetLeader().GetStoreId() == storeID,
+			isNewLeader:    isNewLeader, //todo rename
+			interval:       interval,
+			peers:          peers,
 		}
 
 		if oldItem == nil {
@@ -176,28 +186,24 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo, typ string) (ret
 				}
 			}
 		}
+
 		thresholds := f.calcHotThresholds(newItem.StoreID)
+
 		newItem = f.updateHotPeerStat(newItem, oldItem, bytes, keys, time.Duration(interval)*time.Second, typ, thresholds)
 		if newItem != nil {
 			ret = append(ret, newItem)
-			hotdegree = newItem.HotDegree
-			hotRegionAntiCount = newItem.AntiCount
-			isNew = newItem.isNew
+			if newItem.isLeader {
+				newItem.thresholdsLog = thresholds
+			}
 		}
 	}
 
-	log.Info("region heartbeat interval",
-		zap.Uint64("interval", interval),
+	log.Info("region heartbeat",
+		zap.String("type", typ),
 		zap.Uint64("region", region.GetID()),
-		zap.Uint64("store", region.GetLeader().GetStoreId()),
-		zap.Uint64("epoch", region.GetMeta().GetRegionEpoch().GetVersion()),
-		zap.Float64("byteRate", bytes),
-		zap.Float64("keyRate", keys),
-		zap.Int("hotdegree", hotdegree),
-		zap.Int("hotRegionAntiCount", hotRegionAntiCount),
-		zap.Bool("isNew", isNew),
-		zap.String("type", f.kind.String()))
-
+		zap.Uint64("leader", region.GetLeader().GetStoreId()),
+		zap.Uint64s("peers", peers),
+	)
 	return ret
 }
 
@@ -305,6 +311,42 @@ func (f *hotPeerCache) getAllStoreIDs(region *core.RegionInfo) []uint64 {
 
 	return ret
 }
+func (f *hotPeerCache) isOldColdPeer(oldItem *HotPeerStat, storeID uint64) bool {
+	isOldPeer := func() bool {
+		for _, id := range oldItem.peers {
+			if id == storeID {
+				return true
+			}
+		}
+		return false
+	}
+	noInCache := func() bool {
+		ids, ok := f.storesOfRegion[oldItem.RegionID]
+		if ok {
+			for id := range ids {
+				if id == storeID {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return isOldPeer() && noInCache()
+}
+
+func (f *hotPeerCache) isNewLeader(region *core.RegionInfo) bool {
+	ids, ok := f.storesOfRegion[region.GetID()]
+	if ok {
+		for storeID := range ids {
+			oldItem := f.getOldHotPeerStat(region.GetID(), storeID)
+			if oldItem.isLeader {
+				return oldItem.StoreID != region.GetLeader().GetStoreId()
+			}
+		}
+		log.Error("isNewLeader meets error")
+	}
+	return false
+}
 
 func (f *hotPeerCache) isRegionHotWithAnyPeers(region *core.RegionInfo, hotDegree int) bool {
 	for _, peer := range region.GetPeers() {
@@ -362,6 +404,14 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 
 	newItem.RollingByteRate = oldItem.RollingByteRate
 	newItem.RollingKeyRate = oldItem.RollingKeyRate
+
+	if newItem.isNewLeader {
+		newItem.HotDegree = oldItem.HotDegree
+		newItem.AntiCount = oldItem.AntiCount
+		// skip the first heartbeat interval after transfer leader
+		return newItem
+	}
+
 	newItem.RollingByteRate.Add(bytes, interval)
 	newItem.RollingKeyRate.Add(keys, interval)
 
@@ -370,14 +420,23 @@ func (f *hotPeerCache) updateHotPeerStat(newItem, oldItem *HotPeerStat, bytes, k
 		newItem.HotDegree = oldItem.HotDegree
 		newItem.AntiCount = oldItem.AntiCount
 	} else {
-		if newItem.isHot(thresholds) {
-			newItem.HotDegree = oldItem.HotDegree + 1
-			newItem.AntiCount = hotRegionAntiCount
-		} else {
-			newItem.HotDegree = oldItem.HotDegree - 1
-			newItem.AntiCount = oldItem.AntiCount - 1
-			if newItem.AntiCount <= 0 {
+		if f.isOldColdPeer(oldItem, newItem.StoreID) {
+			if newItem.isHot(thresholds){
+				newItem.HotDegree =  1
+				newItem.AntiCount = hotRegionAntiCount
+			}else{
 				newItem.needDelete = true
+			}
+		}else {
+			if newItem.isHot(thresholds) {
+				newItem.HotDegree = oldItem.HotDegree + 1
+				newItem.AntiCount = hotRegionAntiCount
+			} else {
+				newItem.HotDegree = oldItem.HotDegree - 1
+				newItem.AntiCount = oldItem.AntiCount - 1
+				if newItem.AntiCount <= 0 {
+					newItem.needDelete = true
+				}
 			}
 		}
 		newItem.clearLastAverage()
