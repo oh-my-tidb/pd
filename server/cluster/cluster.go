@@ -1138,7 +1138,8 @@ func (c *RaftCluster) SetStoreHotWeight(storeID uint64, hotReadWeight, hotWriteW
 		core.SetHotWriteWeight(hotWriteWeight),
 	)
 
-	return c.putStoreLocked(newStore)
+	c.core.PutStore(newStore)
+	return nil
 }
 
 func (c *RaftCluster) putStoreLocked(store *core.StoreInfo) error {
