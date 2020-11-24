@@ -1058,3 +1058,48 @@ func addRegionInfo(tc *mockcluster.Cluster, rwTy rwType, regions []testRegionInf
 		)
 	}
 }
+
+func (s *testHotCacheSuite) TestCheckRegionFlow(c *C) {
+	opt := config.NewTestOptions()
+	tc := mockcluster.NewCluster(opt)
+	tc.SetMaxReplicas(3)
+	tc.SetLocationLabels([]string{"zone", "host"})
+	tc.DisableFeature(versioninfo.JointConsensus)
+
+	// hot degree increase
+	tc.AddLeaderRegionWithWriteInfo(1, 1, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{2, 3}, 1)
+	tc.AddLeaderRegionWithWriteInfo(1, 1, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{2, 3}, 1)
+	items := tc.AddLeaderRegionWithWriteInfo(1, 1, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{2, 3}, 1)
+	c.Check(items, HasLen, 3)
+	for _, item := range items {
+		c.Check(item.HotDegree, Equals, 3)
+	}
+
+	// transfer leader and skip the first heartbeat
+	items = tc.AddLeaderRegionWithWriteInfo(1, 2, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{1, 3}, 1)
+	c.Check(items, HasLen, 3)
+	for _, item := range items {
+		c.Check(item.HotDegree, Equals, 3)
+	}
+
+	// move peer: add peer and remove peer
+	items = tc.AddLeaderRegionWithWriteInfo(1, 2, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{1, 3, 4}, 1)
+	c.Check(items, HasLen, 4)
+	for _, item := range items {
+		c.Check(item.HotDegree, Equals, 4)
+	}
+	items = tc.AddLeaderRegionWithWriteInfo(1, 2, 512*KB*statistics.RegionHeartBeatReportInterval, 0, statistics.RegionHeartBeatReportInterval, []uint64{1, 4}, 1)
+	c.Check(items, HasLen, 4)
+	for _, item := range items {
+		if item.StoreID == 3 {
+			c.Check(item.IsNeedDelete(), IsTrue)
+			continue
+		}
+		c.Check(item.HotDegree, Equals, 5)
+	}
+
+	// some peers are hot, and some are cold #3198
+
+}
+
+//func checkItemsHotdegree(c*C,items []*statistics.HotPeerStat,len int,hot)
