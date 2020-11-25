@@ -475,15 +475,18 @@ func (h *hotScheduler) addPendingInfluence(op *operator.Operator, srcStore, dstS
 func (h *hotScheduler) balanceHotReadRegions(cluster opt.Cluster) []*operator.Operator {
 	// prefer to balance by leader
 	leaderSolver := newBalanceSolver(h, cluster, read, transferLeader)
-	ops := leaderSolver.solve()
-	if len(ops) > 0 {
-		return ops
+	leaderOps := leaderSolver.solve()
+	if len(leaderOps) > 0 && leaderSolver.best.progressiveRank <= -2 {
+		return leaderOps
 	}
 
 	peerSolver := newBalanceSolver(h, cluster, read, movePeer)
-	ops = peerSolver.solve()
-	if len(ops) > 0 {
-		return ops
+	peerOps := peerSolver.solve()
+	if len(leaderOps) > 0 && leaderSolver.best.progressiveRank <= peerSolver.best.progressiveRank {
+		return leaderOps
+	}
+	if len(peerOps) > 0 {
+		return peerOps
 	}
 
 	schedulerCounter.WithLabelValues(h.GetName(), "skip").Inc()
@@ -520,7 +523,8 @@ type balanceSolver struct {
 	rwTy         rwType
 	opTy         opType
 
-	cur *solution
+	cur  *solution
+	best *solution
 
 	maxSrc   *storeLoad
 	minDst   *storeLoad
@@ -606,8 +610,8 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 		return nil
 	}
 	bs.cur = &solution{}
+	bs.best = nil
 	var (
-		best  *solution
 		ops   []*operator.Operator
 		infls []Influence
 	)
@@ -624,12 +628,12 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 			for dstStoreID := range bs.filterDstStores() {
 				bs.cur.dstStoreID = dstStoreID
 				bs.calcProgressiveRank()
-				if bs.cur.progressiveRank < 0 && bs.betterThan(best) {
+				if bs.cur.progressiveRank < 0 && bs.betterThan(bs.best) {
 					if newOps, newInfls := bs.buildOperators(); len(newOps) > 0 {
 						ops = newOps
 						infls = newInfls
 						clone := *bs.cur
-						best = &clone
+						bs.best = &clone
 					}
 				}
 			}
@@ -638,7 +642,7 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 
 	for i := 0; i < len(ops); i++ {
 		// TODO: multiple operators need to be atomic.
-		if !bs.sche.addPendingInfluence(ops[i], best.srcStoreID, best.dstStoreID, infls[i], bs.rwTy, bs.opTy) {
+		if !bs.sche.addPendingInfluence(ops[i], bs.best.srcStoreID, bs.best.dstStoreID, infls[i], bs.rwTy, bs.opTy) {
 			return nil
 		}
 	}
@@ -669,7 +673,7 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		if len(detail.HotPeers) == 0 {
 			continue
 		}
-		if detail.LoadPred.min().ByteRate > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Future.ExpByteRate &&
+		if detail.LoadPred.min().ByteRate > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Future.ExpByteRate ||
 			detail.LoadPred.min().KeyRate > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Future.ExpKeyRate {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ", strconv.FormatUint(id, 10)).Inc()
@@ -839,7 +843,7 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*co
 	for _, store := range candidates {
 		if filter.Target(bs.cluster.GetOpts(), store, filters) {
 			detail := bs.stLoadDetail[store.GetID()]
-			if detail.LoadPred.max().ByteRate*dstToleranceRatio < detail.LoadPred.Future.ExpByteRate &&
+			if detail.LoadPred.max().ByteRate*dstToleranceRatio < detail.LoadPred.Future.ExpByteRate ||
 				detail.LoadPred.max().KeyRate*dstToleranceRatio < detail.LoadPred.Future.ExpKeyRate {
 				ret[store.GetID()] = bs.stLoadDetail[store.GetID()]
 				hotSchedulerResultCounter.WithLabelValues("dst-store-succ", strconv.FormatUint(store.GetID(), 10)).Inc()
@@ -879,15 +883,13 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		byteDecRatio := (dstLd.ByteRate + peer.GetByteRate()) / dstWeight / getSrcDecRate(srcLd.ByteRate, peer.GetByteRate()) * srcWeight
 		byteHot := peer.GetByteRate() > bs.sche.conf.GetMinHotByteRate()
 		greatDecRatio, minorDecRatio := bs.sche.conf.GetGreatDecRatio(), bs.sche.conf.GetMinorGreatDecRatio()
-		switch {
-		case byteHot && byteDecRatio <= greatDecRatio && keyHot && keyDecRatio <= greatDecRatio:
-			// Both byte rate and key rate are balanced, the best choice.
-			rank = -3
-		case byteDecRatio <= minorDecRatio && keyHot && keyDecRatio <= greatDecRatio:
-			// Byte rate is not worsened, key rate is balanced.
+		if byteHot && byteDecRatio <= greatDecRatio && keyHot && keyDecRatio <= greatDecRatio {
 			rank = -2
-		case byteHot && byteDecRatio <= greatDecRatio:
-			// Byte rate is balanced, ignore the key rate.
+		}
+		if byteHot && byteDecRatio <= greatDecRatio && (!keyHot || keyDecRatio <= minorDecRatio) {
+			rank = -1
+		}
+		if keyHot && keyDecRatio <= greatDecRatio && (!byteHot || byteDecRatio <= minorDecRatio) {
 			rank = -1
 		}
 	}
