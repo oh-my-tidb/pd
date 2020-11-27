@@ -14,6 +14,7 @@
 package statistics
 
 import (
+	"math"
 	"time"
 
 	"github.com/tikv/pd/pkg/movingaverage"
@@ -40,12 +41,10 @@ type HotPeerStat struct {
 
 	Loads []float64 `json:"loads"`
 	// rolling statistics, recording some recently added records.
-	RollingLoads []*movingaverage.TimeMedian
+	rollingLoads []*movingaverage.TimeMedian
 
 	// LastUpdateTime used to calculate average write
 	LastUpdateTime time.Time `json:"last_update_time"`
-	// Version used to check the region split times
-	Version uint64 `json:"version"`
 
 	needDelete bool
 	isLeader   bool
@@ -79,10 +78,10 @@ func (stat *HotPeerStat) IsNew() bool {
 
 // GetLoad returns denoised load if possible.
 func (stat *HotPeerStat) GetLoad(i int) float64 {
-	if len(stat.RollingLoads) > i {
-		return stat.RollingLoads[i].Get()
+	if len(stat.rollingLoads) > i {
+		return math.Round(stat.rollingLoads[i].Get())
 	}
-	return stat.Loads[i]
+	return math.Round(stat.Loads[i])
 }
 
 // Clone clones the HotPeerStat for hot scheduler.
@@ -92,6 +91,6 @@ func (stat *HotPeerStat) Clone() *HotPeerStat {
 	for i := 0; i < DimLen; i++ {
 		ret.Loads[i] = stat.GetLoad(i) // replace with denoised loads
 	}
-	ret.RollingLoads = nil
+	ret.rollingLoads = nil
 	return &ret
 }
