@@ -140,16 +140,17 @@ func getKeyRanges(args []string) ([]core.KeyRange, error) {
 
 // Influence records operator influence.
 type Influence struct {
-	ByteRate float64
-	KeyRate  float64
-	Count    float64
+	Loads []float64
+	Count float64
 }
 
-func (infl Influence) add(rhs *Influence, w float64) Influence {
-	infl.ByteRate += rhs.ByteRate * w
-	infl.KeyRate += rhs.KeyRate * w
-	infl.Count += rhs.Count * w
-	return infl
+func (lhs *Influence) add(rhs *Influence, w float64) *Influence {
+	var infl Influence
+	for i := range lhs.Loads {
+		infl.Loads = append(infl.Loads, lhs.Loads[i]+rhs.Loads[i]*w)
+	}
+	infl.Count = infl.Count + rhs.Count*w
+	return &infl
 }
 
 // TODO: merge it into OperatorInfluence.
@@ -170,47 +171,53 @@ func newPendingInfluence(op *operator.Operator, from, to uint64, infl Influence)
 
 // summaryPendingInfluence calculate the summary pending Influence for each store and return storeID -> Influence
 // It makes each key/byte rate or count become (1+w) times to the origin value while f is the function to provide w(weight)
-func summaryPendingInfluence(pendings map[*pendingInfluence]struct{}, f func(*operator.Operator) float64) map[uint64]Influence {
-	ret := map[uint64]Influence{}
+func summaryPendingInfluence(pendings map[*pendingInfluence]struct{}, f func(*operator.Operator) float64) map[uint64]*Influence {
+	ret := make(map[uint64]*Influence)
 	for p := range pendings {
 		w := f(p.op)
 		if w == 0 {
 			delete(pendings, p)
 		}
+		if _, ok := ret[p.to]; !ok {
+			ret[p.to] = &Influence{Loads: make([]float64, len(p.origin.Loads))}
+		}
 		ret[p.to] = ret[p.to].add(&p.origin, w)
+		if _, ok := ret[p.from]; !ok {
+			ret[p.from] = &Influence{Loads: make([]float64, len(p.origin.Loads))}
+		}
 		ret[p.from] = ret[p.from].add(&p.origin, -w)
 	}
 	return ret
 }
 
 type storeLoad struct {
-	ByteRate float64
-	KeyRate  float64
-	Count    float64
-
-	// Exp means Expectation, it is calculated from the average value from summary of byte/key rate, count.
-	ExpByteRate float64
-	ExpKeyRate  float64
-	ExpCount    float64
+	Loads []float64
+	Count float64
 }
 
-func (load *storeLoad) ToLoadPred(infl Influence) *storeLoadPred {
-	future := *load
-	future.ByteRate += infl.ByteRate
-	future.KeyRate += infl.KeyRate
-	future.Count += infl.Count
+func (load storeLoad) ToLoadPred(infl *Influence) *storeLoadPred {
+	future := storeLoad{
+		Loads: append(load.Loads[:0:0], load.Loads...),
+		Count: load.Count,
+	}
+	if infl != nil {
+		for i := range future.Loads {
+			future.Loads[i] += infl.Loads[i]
+		}
+		future.Count += infl.Count
+	}
 	return &storeLoadPred{
-		Current: *load,
+		Current: load,
 		Future:  future,
 	}
 }
 
 func stLdByteRate(ld *storeLoad) float64 {
-	return ld.ByteRate
+	return ld.Loads[statistics.ByteDim]
 }
 
 func stLdKeyRate(ld *storeLoad) float64 {
-	return ld.KeyRate
+	return ld.Loads[statistics.KeyDim]
 }
 
 func stLdCount(ld *storeLoad) float64 {
@@ -256,6 +263,7 @@ func rankCmp(a, b float64, rank func(value float64) int64) int {
 type storeLoadPred struct {
 	Current storeLoad
 	Future  storeLoad
+	Expect  storeLoad
 }
 
 func (lp *storeLoadPred) min() *storeLoad {
@@ -268,10 +276,13 @@ func (lp *storeLoadPred) max() *storeLoad {
 
 func (lp *storeLoadPred) diff() *storeLoad {
 	mx, mn := lp.max(), lp.min()
+	loads := make([]float64, len(mx.Loads))
+	for i := range loads {
+		loads[i] = mx.Loads[i] - mn.Loads[i]
+	}
 	return &storeLoad{
-		ByteRate: mx.ByteRate - mn.ByteRate,
-		KeyRate:  mx.KeyRate - mn.KeyRate,
-		Count:    mx.Count - mn.Count,
+		Loads: loads,
+		Count: mx.Count - mn.Count,
 	}
 }
 
@@ -307,18 +318,24 @@ func diffCmp(ldCmp storeLoadCmp) storeLPCmp {
 }
 
 func minLoad(a, b *storeLoad) *storeLoad {
+	loads := make([]float64, len(a.Loads))
+	for i := range loads {
+		loads[i] = math.Min(a.Loads[i], b.Loads[i])
+	}
 	return &storeLoad{
-		ByteRate: math.Min(a.ByteRate, b.ByteRate),
-		KeyRate:  math.Min(a.KeyRate, b.KeyRate),
-		Count:    math.Min(a.Count, b.Count),
+		Loads: loads,
+		Count: math.Min(a.Count, b.Count),
 	}
 }
 
 func maxLoad(a, b *storeLoad) *storeLoad {
+	loads := make([]float64, len(a.Loads))
+	for i := range loads {
+		loads[i] = math.Max(a.Loads[i], b.Loads[i])
+	}
 	return &storeLoad{
-		ByteRate: math.Max(a.ByteRate, b.ByteRate),
-		KeyRate:  math.Max(a.KeyRate, b.KeyRate),
-		Count:    math.Max(a.Count, b.Count),
+		Loads: loads,
+		Count: math.Max(a.Count, b.Count),
 	}
 }
 
@@ -333,8 +350,8 @@ func (li *storeLoadDetail) toHotPeersStat() *statistics.HotPeersStat {
 		peers = append(peers, *peer.Clone())
 	}
 	return &statistics.HotPeersStat{
-		TotalBytesRate: li.LoadPred.Current.ByteRate,
-		TotalKeysRate:  li.LoadPred.Current.KeyRate,
+		TotalBytesRate: li.LoadPred.Current.Loads[statistics.ByteDim],
+		TotalKeysRate:  li.LoadPred.Current.Loads[statistics.KeyDim],
 		Count:          len(li.HotPeers),
 		Stats:          peers,
 	}

@@ -109,10 +109,10 @@ func (s *storeStatistics) Observe(store *core.StoreInfo, stats *StoresStats) {
 		return
 	}
 
-	storeWriteRateByte, storeReadRateByte := storeFlowStats.GetBytesRate()
+	storeWriteRateByte, storeReadRateByte := storeFlowStats.GetWriteLoad(ByteDim), storeFlowStats.GetReadLoad(ByteDim)
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_write_rate_bytes").Set(storeWriteRateByte)
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_read_rate_bytes").Set(storeReadRateByte)
-	storeWriteRateKey, storeReadRateKey := storeFlowStats.GetKeysWriteRate(), storeFlowStats.GetKeysReadRate()
+	storeWriteRateKey, storeReadRateKey := storeFlowStats.GetWriteLoad(KeyDim), storeFlowStats.GetWriteLoad(KeyDim)
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_write_rate_keys").Set(storeWriteRateKey)
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_read_rate_keys").Set(storeReadRateKey)
 

@@ -27,6 +27,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/pd/pkg/errs"
+	"github.com/tikv/pd/pkg/slice"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule"
 	"github.com/tikv/pd/server/schedule/filter"
@@ -75,12 +76,6 @@ const (
 
 	minHotScheduleInterval = time.Second
 	maxHotScheduleInterval = 20 * time.Second
-
-	divisor                   = float64(1000) * 2
-	hotWriteRegionMinFlowRate = 16 * 1024
-	hotReadRegionMinFlowRate  = 128 * 1024
-	hotWriteRegionMinKeyRate  = 256
-	hotReadRegionMinKeyRate   = 512
 )
 
 // schedulePeerPr the probability of schedule the hot peer.
@@ -106,7 +101,7 @@ type hotScheduler struct {
 	stLoadInfos [resourceTypeLen]map[uint64]*storeLoadDetail
 	// pendingSums indicates the [resourceType] storeID -> pending Influence
 	// This stores the pending Influence for each store by resource type.
-	pendingSums [resourceTypeLen]map[uint64]Influence
+	pendingSums [resourceTypeLen]map[uint64]*Influence
 	// config of hot scheduler
 	conf *hotRegionSchedulerConfig
 }
@@ -206,70 +201,31 @@ func (h *hotScheduler) prepareForBalance(cluster opt.Cluster) {
 	minHotDegree := cluster.GetOpts().GetHotRegionCacheHitsThreshold()
 	{ // update read statistics
 		regionRead := cluster.RegionReadStats()
-		storeByte := storesStat.GetStoresBytesReadStat()
-		storeKey := storesStat.GetStoresKeysReadStat()
-		hotRegionThreshold := getHotRegionThreshold(storesStat, read)
+		storeLoadStats := storesStat.GetStoresReadLoads()
 		h.stLoadInfos[readLeader] = summaryStoresLoad(
-			storeByte,
-			storeKey,
+			storeLoadStats,
 			h.pendingSums[readLeader],
 			regionRead,
 			minHotDegree,
-			hotRegionThreshold,
-			read, core.LeaderKind, mixed)
+			read, core.LeaderKind)
 	}
 
 	{ // update write statistics
 		regionWrite := cluster.RegionWriteStats()
-		storeByte := storesStat.GetStoresBytesWriteStat()
-		storeKey := storesStat.GetStoresKeysWriteStat()
-		hotRegionThreshold := getHotRegionThreshold(storesStat, write)
+		storeLoadStats := storesStat.GetStoresWriteLoads()
 		h.stLoadInfos[writeLeader] = summaryStoresLoad(
-			storeByte,
-			storeKey,
+			storeLoadStats,
 			h.pendingSums[writeLeader],
 			regionWrite,
 			minHotDegree,
-			hotRegionThreshold,
-			write, core.LeaderKind, mixed)
+			write, core.LeaderKind)
 
 		h.stLoadInfos[writePeer] = summaryStoresLoad(
-			storeByte,
-			storeKey,
+			storeLoadStats,
 			h.pendingSums[writePeer],
 			regionWrite,
 			minHotDegree,
-			hotRegionThreshold,
-			write, core.RegionKind, mixed)
-	}
-}
-
-// getHotRegionThreshold return the min rate for the rw(read/write) rate and key rate
-func getHotRegionThreshold(stats *statistics.StoresStats, typ rwType) [2]uint64 {
-	var hotRegionThreshold [2]uint64
-	switch typ {
-	case write:
-		hotRegionThreshold[0] = uint64(stats.TotalBytesWriteRate() / divisor)
-		if hotRegionThreshold[0] < hotWriteRegionMinFlowRate {
-			hotRegionThreshold[0] = hotWriteRegionMinFlowRate
-		}
-		hotRegionThreshold[1] = uint64(stats.TotalKeysWriteRate() / divisor)
-		if hotRegionThreshold[1] < hotWriteRegionMinKeyRate {
-			hotRegionThreshold[1] = hotWriteRegionMinKeyRate
-		}
-		return hotRegionThreshold
-	case read:
-		hotRegionThreshold[0] = uint64(stats.TotalBytesReadRate() / divisor)
-		if hotRegionThreshold[0] < hotReadRegionMinFlowRate {
-			hotRegionThreshold[0] = hotReadRegionMinFlowRate
-		}
-		hotRegionThreshold[1] = uint64(stats.TotalKeysWriteRate() / divisor)
-		if hotRegionThreshold[1] < hotReadRegionMinKeyRate {
-			hotRegionThreshold[1] = hotReadRegionMinKeyRate
-		}
-		return hotRegionThreshold
-	default:
-		panic("invalid type: " + typ.String())
+			write, core.RegionKind)
 	}
 }
 
@@ -309,61 +265,54 @@ func (h *hotScheduler) gcRegionPendings() {
 // summaryStoresLoad Load information of all available stores.
 // it will filtered the hot peer and calculate the current and future stat(byte/key rate,count) for each store
 func summaryStoresLoad(
-	storeByteRate map[uint64]float64,
-	storeKeyRate map[uint64]float64,
-	storePendings map[uint64]Influence,
+	storeLoadStats map[uint64][]float64,
+	storePendings map[uint64]*Influence,
 	storeHotPeers map[uint64][]*statistics.HotPeerStat,
 	minHotDegree int,
-	hotRegionThreshold [2]uint64,
 	rwTy rwType,
 	kind core.ResourceKind,
-	hotPeerFilterTy hotPeerFilterType,
 ) map[uint64]*storeLoadDetail {
 	// loadDetail stores the storeID -> hotPeers stat and its current and future stat(key/byte rate,count)
-	loadDetail := make(map[uint64]*storeLoadDetail, len(storeByteRate))
-	allByteSum := 0.0
-	allKeySum := 0.0
+	loadDetail := make(map[uint64]*storeLoadDetail, len(storeLoadStats))
+	allLoadSum := make([]float64, statistics.DimLen)
 	allCount := 0.0
 
 	// Stores without byte rate statistics is not available to schedule.
-	for id, byteRate := range storeByteRate {
-		keyRate := storeKeyRate[id]
-
+	for id, loads := range storeLoadStats {
 		// Find all hot peers first
 		hotPeers := make([]*statistics.HotPeerStat, 0)
 		{
-			byteSum := 0.0
-			keySum := 0.0
-			for _, peer := range filterHotPeers(kind, minHotDegree, hotRegionThreshold, storeHotPeers[id], hotPeerFilterTy) {
-				byteSum += peer.GetByteRate()
-				keySum += peer.GetKeyRate()
+			peerLoadSum := make([]float64, statistics.DimLen)
+			for _, peer := range filterHotPeers(kind, minHotDegree, storeHotPeers[id]) {
+				for i := range peerLoadSum {
+					peerLoadSum[i] += peer.GetLoad(i)
+				}
 				hotPeers = append(hotPeers, peer.Clone())
 			}
 			// Use sum of hot peers to estimate leader-only byte rate.
 			if kind == core.LeaderKind && rwTy == write {
-				byteRate = byteSum
-				keyRate = keySum
+				loads = peerLoadSum
 			}
 
 			// Metric for debug.
 			{
 				ty := "byte-rate-" + rwTy.String() + "-" + kind.String()
-				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(byteSum)
+				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(peerLoadSum[statistics.ByteDim])
 			}
 			{
 				ty := "key-rate-" + rwTy.String() + "-" + kind.String()
-				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(keySum)
+				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(peerLoadSum[statistics.KeyDim])
 			}
 		}
-		allByteSum += byteRate
-		allKeySum += keyRate
+		for i := range allLoadSum {
+			allLoadSum[i] += loads[i]
+		}
 		allCount += float64(len(hotPeers))
 
 		// Build store load prediction from current load and pending influence.
 		stLoadPred := (&storeLoad{
-			ByteRate: byteRate,
-			KeyRate:  keyRate,
-			Count:    float64(len(hotPeers)),
+			Loads: loads,
+			Count: float64(len(hotPeers)),
 		}).ToLoadPred(storePendings[id])
 
 		// Construct store load info.
@@ -372,28 +321,29 @@ func summaryStoresLoad(
 			HotPeers: hotPeers,
 		}
 	}
-	storeLen := float64(len(storeByteRate))
+	storeLen := float64(len(storeLoadStats))
 
 	// store expectation byte/key rate and count for each store-load detail.
 	for id, detail := range loadDetail {
-		byteExp := allByteSum / storeLen
-		keyExp := allKeySum / storeLen
-		countExp := allCount / storeLen
-		detail.LoadPred.Future.ExpByteRate = byteExp
-		detail.LoadPred.Future.ExpKeyRate = keyExp
-		detail.LoadPred.Future.ExpCount = countExp
+		expectLoads := make([]float64, len(allLoadSum))
+		for i := range expectLoads {
+			expectLoads[i] = allLoadSum[i] / storeLen
+		}
+		expectCount := allCount / storeLen
+		detail.LoadPred.Expect.Loads = expectLoads
+		detail.LoadPred.Expect.Count = expectCount
 		// Debug
 		{
 			ty := "exp-byte-rate-" + rwTy.String() + "-" + kind.String()
-			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(byteExp)
+			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(expectLoads[statistics.ByteDim])
 		}
 		{
 			ty := "exp-key-rate-" + rwTy.String() + "-" + kind.String()
-			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(keyExp)
+			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(expectLoads[statistics.KeyDim])
 		}
 		{
 			ty := "exp-count-rate-" + rwTy.String() + "-" + kind.String()
-			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(countExp)
+			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(expectCount)
 		}
 	}
 	return loadDetail
@@ -403,39 +353,17 @@ func summaryStoresLoad(
 func filterHotPeers(
 	kind core.ResourceKind,
 	minHotDegree int,
-	hotRegionThreshold [2]uint64,
 	peers []*statistics.HotPeerStat,
-	hotPeerFilterTy hotPeerFilterType,
 ) []*statistics.HotPeerStat {
 	ret := make([]*statistics.HotPeerStat, 0)
 	for _, peer := range peers {
 		if (kind == core.LeaderKind && !peer.IsLeader()) ||
-			peer.HotDegree < minHotDegree ||
-			// As hotPeerFilterTy here is always mix currently, isHotPeerFiltered will directly return false here.
-			isHotPeerFiltered(peer, hotRegionThreshold, hotPeerFilterTy) {
+			peer.HotDegree < minHotDegree {
 			continue
 		}
 		ret = append(ret, peer)
 	}
 	return ret
-}
-
-// isHotPeerFiltered compare whether the target peer would be filtered depended on its stat and hot rate threshold
-// In case mixed, we directly return false
-func isHotPeerFiltered(peer *statistics.HotPeerStat, hotRegionThreshold [2]uint64, hotPeerFilterTy hotPeerFilterType) bool {
-	var isFiltered bool
-	switch hotPeerFilterTy {
-	case high:
-		if peer.GetByteRate() < float64(hotRegionThreshold[0]) && peer.GetKeyRate() < float64(hotRegionThreshold[1]) {
-			isFiltered = true
-		}
-	case low:
-		if peer.GetByteRate() >= float64(hotRegionThreshold[0]) || peer.GetKeyRate() >= float64(hotRegionThreshold[1]) {
-			isFiltered = true
-		}
-	case mixed:
-	}
-	return isFiltered
 }
 
 func (h *hotScheduler) addPendingInfluence(op *operator.Operator, srcStore, dstStore uint64, infl Influence, rwTy rwType, opTy opType) bool {
@@ -539,13 +467,15 @@ func (bs *balanceSolver) init() {
 	}
 	// And it will be unnecessary to filter unhealthy store, because it has been solved in process heartbeat
 
-	bs.maxSrc = &storeLoad{}
+	bs.maxSrc = &storeLoad{Loads: make([]float64, statistics.DimLen)}
 	bs.minDst = &storeLoad{
-		ByteRate: math.MaxFloat64,
-		KeyRate:  math.MaxFloat64,
-		Count:    math.MaxFloat64,
+		Loads: make([]float64, statistics.DimLen),
+		Count: math.MaxFloat64,
 	}
-	maxCur := &storeLoad{}
+	for i := range bs.minDst.Loads {
+		bs.minDst.Loads[i] = math.MaxFloat64
+	}
+	maxCur := &storeLoad{Loads: make([]float64, statistics.DimLen)}
 
 	for _, detail := range bs.stLoadDetail {
 		bs.maxSrc = maxLoad(bs.maxSrc, detail.LoadPred.min())
@@ -553,10 +483,14 @@ func (bs *balanceSolver) init() {
 		maxCur = maxLoad(maxCur, &detail.LoadPred.Current)
 	}
 
+	rankStepRatios := []float64{bs.sche.conf.GetByteRankStepRatio(), bs.sche.conf.GetKeyRankStepRatio()}
+	stepLoads := make([]float64, statistics.DimLen)
+	for i := range stepLoads {
+		stepLoads[i] = maxCur.Loads[i] * rankStepRatios[i]
+	}
 	bs.rankStep = &storeLoad{
-		ByteRate: maxCur.ByteRate * bs.sche.conf.GetByteRankStepRatio(),
-		KeyRate:  maxCur.KeyRate * bs.sche.conf.GetKeyRankStepRatio(),
-		Count:    maxCur.Count * bs.sche.conf.GetCountRankStepRatio(),
+		Loads: stepLoads,
+		Count: maxCur.Count * bs.sche.conf.GetCountRankStepRatio(),
 	}
 }
 
@@ -658,8 +592,10 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		if len(detail.HotPeers) == 0 {
 			continue
 		}
-		if detail.LoadPred.min().ByteRate > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Future.ExpByteRate &&
-			detail.LoadPred.min().KeyRate > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Future.ExpKeyRate {
+		minLoad := detail.LoadPred.min()
+		if slice.AllOf(minLoad.Loads, func(i int) bool {
+			return minLoad.Loads[i] > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Expect.Loads[i]
+		}) {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ", strconv.FormatUint(id, 10)).Inc()
 		}
@@ -693,12 +629,12 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 	byteSort := make([]*statistics.HotPeerStat, len(ret))
 	copy(byteSort, ret)
 	sort.Slice(byteSort, func(i, j int) bool {
-		return byteSort[i].GetByteRate() > byteSort[j].GetByteRate()
+		return byteSort[i].GetLoad(statistics.ByteDim) > byteSort[j].GetLoad(statistics.ByteDim)
 	})
 	keySort := make([]*statistics.HotPeerStat, len(ret))
 	copy(keySort, ret)
 	sort.Slice(keySort, func(i, j int) bool {
-		return keySort[i].GetKeyRate() > keySort[j].GetKeyRate()
+		return byteSort[i].GetLoad(statistics.KeyDim) > byteSort[j].GetLoad(statistics.KeyDim)
 	})
 
 	union := make(map[*statistics.HotPeerStat]struct{}, maxPeerNum)
@@ -828,8 +764,10 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*co
 	for _, store := range candidates {
 		if filter.Target(bs.cluster.GetOpts(), store, filters) {
 			detail := bs.stLoadDetail[store.GetID()]
-			if detail.LoadPred.max().ByteRate*dstToleranceRatio < detail.LoadPred.Future.ExpByteRate &&
-				detail.LoadPred.max().KeyRate*dstToleranceRatio < detail.LoadPred.Future.ExpKeyRate {
+			maxLoads := detail.LoadPred.max().Loads
+			if slice.AllOf(maxLoads, func(i int) bool {
+				return maxLoads[i]*dstToleranceRatio < detail.LoadPred.Expect.Loads[i]
+			}) {
 				ret[store.GetID()] = bs.stLoadDetail[store.GetID()]
 				hotSchedulerResultCounter.WithLabelValues("dst-store-succ", strconv.FormatUint(store.GetID(), 10)).Inc()
 			}
@@ -849,7 +787,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 	if bs.rwTy == write && bs.opTy == transferLeader {
 		// In this condition, CPU usage is the matter.
 		// Only consider about key rate.
-		if srcLd.KeyRate >= dstLd.KeyRate+peer.GetKeyRate() {
+		if srcLd.Loads[statistics.KeyDim] >= dstLd.Loads[statistics.KeyDim]+peer.GetLoad(statistics.KeyDim) {
 			rank = -1
 		}
 	} else {
@@ -861,10 +799,10 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		}
 		// we use DecRatio(Decline Ratio) to expect that the dst store's (key/byte) rate should still be less
 		// than the src store's (key/byte) rate after scheduling one peer.
-		keyDecRatio := (dstLd.KeyRate + peer.GetKeyRate()) / getSrcDecRate(srcLd.KeyRate, peer.GetKeyRate())
-		keyHot := peer.GetKeyRate() >= bs.sche.conf.GetMinHotKeyRate()
-		byteDecRatio := (dstLd.ByteRate + peer.GetByteRate()) / getSrcDecRate(srcLd.ByteRate, peer.GetByteRate())
-		byteHot := peer.GetByteRate() > bs.sche.conf.GetMinHotByteRate()
+		keyDecRatio := (dstLd.Loads[statistics.KeyDim] + peer.GetLoad(statistics.KeyDim)) / getSrcDecRate(srcLd.Loads[statistics.KeyDim], peer.GetLoad(statistics.KeyDim))
+		keyHot := peer.GetLoad(statistics.KeyDim) >= bs.sche.conf.GetMinHotKeyRate()
+		byteDecRatio := (dstLd.Loads[statistics.ByteDim] + peer.GetLoad(statistics.ByteDim)) / getSrcDecRate(srcLd.Loads[statistics.ByteDim], peer.GetLoad(statistics.ByteDim))
+		byteHot := peer.GetLoad(statistics.ByteDim) > bs.sche.conf.GetMinHotByteRate()
 		greatDecRatio, minorDecRatio := bs.sche.conf.GetGreatDecRatio(), bs.sche.conf.GetMinorGreatDecRatio()
 		switch {
 		case byteHot && byteDecRatio <= greatDecRatio && keyHot && keyDecRatio <= greatDecRatio:
@@ -911,14 +849,14 @@ func (bs *balanceSolver) betterThan(old *solution) bool {
 
 		if bs.rwTy == write && bs.opTy == transferLeader {
 			switch {
-			case bs.cur.srcPeerStat.GetKeyRate() > old.srcPeerStat.GetKeyRate():
+			case bs.cur.srcPeerStat.GetLoad(statistics.KeyDim) > old.srcPeerStat.GetLoad(statistics.KeyDim):
 				return true
-			case bs.cur.srcPeerStat.GetKeyRate() < old.srcPeerStat.GetKeyRate():
+			case bs.cur.srcPeerStat.GetLoad(statistics.KeyDim) < old.srcPeerStat.GetLoad(statistics.KeyDim):
 				return false
 			}
 		} else {
-			byteRkCmp := rankCmp(bs.cur.srcPeerStat.GetByteRate(), old.srcPeerStat.GetByteRate(), stepRank(0, 100))
-			keyRkCmp := rankCmp(bs.cur.srcPeerStat.GetKeyRate(), old.srcPeerStat.GetKeyRate(), stepRank(0, 10))
+			byteRkCmp := rankCmp(bs.cur.srcPeerStat.GetLoad(statistics.ByteDim), old.srcPeerStat.GetLoad(statistics.ByteDim), stepRank(0, 100))
+			keyRkCmp := rankCmp(bs.cur.srcPeerStat.GetLoad(statistics.KeyDim), old.srcPeerStat.GetLoad(statistics.KeyDim), stepRank(0, 10))
 
 			switch bs.cur.progressiveRank {
 			case -2: // greatDecRatio < byteDecRatio <= minorDecRatio && keyDecRatio <= greatDecRatio
@@ -954,23 +892,23 @@ func (bs *balanceSolver) compareSrcStore(st1, st2 uint64) int {
 		if bs.rwTy == write && bs.opTy == transferLeader {
 			lpCmp = sliceLPCmp(
 				minLPCmp(negLoadCmp(sliceLoadCmp(
-					stLdRankCmp(stLdKeyRate, stepRank(bs.maxSrc.KeyRate, bs.rankStep.KeyRate)),
-					stLdRankCmp(stLdByteRate, stepRank(bs.maxSrc.ByteRate, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdKeyRate, stepRank(bs.maxSrc.Loads[statistics.KeyDim], bs.rankStep.Loads[statistics.KeyDim])),
+					stLdRankCmp(stLdByteRate, stepRank(bs.maxSrc.Loads[statistics.ByteDim], bs.rankStep.Loads[statistics.ByteDim])),
 				))),
 				diffCmp(sliceLoadCmp(
 					stLdRankCmp(stLdCount, stepRank(0, bs.rankStep.Count)),
-					stLdRankCmp(stLdKeyRate, stepRank(0, bs.rankStep.KeyRate)),
-					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdKeyRate, stepRank(0, bs.rankStep.Loads[statistics.KeyDim])),
+					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.Loads[statistics.ByteDim])),
 				)),
 			)
 		} else {
 			lpCmp = sliceLPCmp(
 				minLPCmp(negLoadCmp(sliceLoadCmp(
-					stLdRankCmp(stLdByteRate, stepRank(bs.maxSrc.ByteRate, bs.rankStep.ByteRate)),
-					stLdRankCmp(stLdKeyRate, stepRank(bs.maxSrc.KeyRate, bs.rankStep.KeyRate)),
+					stLdRankCmp(stLdByteRate, stepRank(bs.maxSrc.Loads[statistics.ByteDim], bs.rankStep.Loads[statistics.ByteDim])),
+					stLdRankCmp(stLdKeyRate, stepRank(bs.maxSrc.Loads[statistics.KeyDim], bs.rankStep.Loads[statistics.KeyDim])),
 				))),
 				diffCmp(
-					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.Loads[statistics.ByteDim])),
 				),
 			)
 		}
@@ -990,22 +928,22 @@ func (bs *balanceSolver) compareDstStore(st1, st2 uint64) int {
 		if bs.rwTy == write && bs.opTy == transferLeader {
 			lpCmp = sliceLPCmp(
 				maxLPCmp(sliceLoadCmp(
-					stLdRankCmp(stLdKeyRate, stepRank(bs.minDst.KeyRate, bs.rankStep.KeyRate)),
-					stLdRankCmp(stLdByteRate, stepRank(bs.minDst.ByteRate, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdKeyRate, stepRank(bs.minDst.Loads[statistics.KeyDim], bs.rankStep.Loads[statistics.KeyDim])),
+					stLdRankCmp(stLdByteRate, stepRank(bs.minDst.Loads[statistics.ByteDim], bs.rankStep.Loads[statistics.ByteDim])),
 				)),
 				diffCmp(sliceLoadCmp(
 					stLdRankCmp(stLdCount, stepRank(0, bs.rankStep.Count)),
-					stLdRankCmp(stLdKeyRate, stepRank(0, bs.rankStep.KeyRate)),
-					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdKeyRate, stepRank(0, bs.rankStep.Loads[statistics.KeyDim])),
+					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.Loads[statistics.ByteDim])),
 				)))
 		} else {
 			lpCmp = sliceLPCmp(
 				maxLPCmp(sliceLoadCmp(
-					stLdRankCmp(stLdByteRate, stepRank(bs.minDst.ByteRate, bs.rankStep.ByteRate)),
-					stLdRankCmp(stLdKeyRate, stepRank(bs.minDst.KeyRate, bs.rankStep.KeyRate)),
+					stLdRankCmp(stLdByteRate, stepRank(bs.minDst.Loads[statistics.ByteDim], bs.rankStep.Loads[statistics.ByteDim])),
+					stLdRankCmp(stLdKeyRate, stepRank(bs.minDst.Loads[statistics.KeyDim], bs.rankStep.Loads[statistics.KeyDim])),
 				)),
 				diffCmp(
-					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.ByteRate)),
+					stLdRankCmp(stLdByteRate, stepRank(0, bs.rankStep.Loads[statistics.ByteDim])),
 				),
 			)
 		}
@@ -1091,9 +1029,8 @@ func (bs *balanceSolver) buildOperators() ([]*operator.Operator, []Influence) {
 		schedulerCounter.WithLabelValues(bs.sche.GetName(), bs.opTy.String()))
 
 	infl := Influence{
-		ByteRate: bs.cur.srcPeerStat.GetByteRate(),
-		KeyRate:  bs.cur.srcPeerStat.GetKeyRate(),
-		Count:    1,
+		Loads: append(bs.cur.srcPeerStat.Loads[:0:0], bs.cur.srcPeerStat.Loads...),
+		Count: 1,
 	}
 
 	return []*operator.Operator{op}, []Influence{infl}
@@ -1128,21 +1065,21 @@ func (h *hotScheduler) GetHotWriteStatus() *statistics.StoreHotPeersInfos {
 	}
 }
 
-func (h *hotScheduler) GetWritePendingInfluence() map[uint64]Influence {
+func (h *hotScheduler) GetWritePendingInfluence() map[uint64]*Influence {
 	return h.copyPendingInfluence(writePeer)
 }
 
-func (h *hotScheduler) GetReadPendingInfluence() map[uint64]Influence {
+func (h *hotScheduler) GetReadPendingInfluence() map[uint64]*Influence {
 	return h.copyPendingInfluence(readLeader)
 }
 
-func (h *hotScheduler) copyPendingInfluence(ty resourceType) map[uint64]Influence {
+func (h *hotScheduler) copyPendingInfluence(ty resourceType) map[uint64]*Influence {
 	h.RLock()
 	defer h.RUnlock()
 	pendingSum := h.pendingSums[ty]
-	ret := make(map[uint64]Influence, len(pendingSum))
+	ret := make(map[uint64]*Influence, len(pendingSum))
 	for id, infl := range pendingSum {
-		ret[id] = infl
+		ret[id] = infl.add(infl, 0) // copy
 	}
 	return ret
 }
@@ -1196,14 +1133,6 @@ func (rw rwType) String() string {
 		return ""
 	}
 }
-
-type hotPeerFilterType int
-
-const (
-	high hotPeerFilterType = iota
-	low
-	mixed
-)
 
 type opType int
 

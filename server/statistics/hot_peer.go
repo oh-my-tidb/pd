@@ -19,10 +19,11 @@ import (
 	"github.com/tikv/pd/pkg/movingaverage"
 )
 
+// Indicator dims.
 const (
-	byteDim int = iota
-	keyDim
-	dimLen
+	ByteDim int = iota
+	KeyDim
+	DimLen
 )
 
 // HotPeerStat records each hot peer's statistics
@@ -35,13 +36,11 @@ type HotPeerStat struct {
 	// AntiCount used to eliminate some noise when remove region in cache
 	AntiCount int `json:"anti_count"`
 
-	Kind     FlowKind `json:"kind"`
-	ByteRate float64  `json:"flow_bytes"`
-	KeyRate  float64  `json:"flow_keys"`
+	Kind FlowKind `json:"kind"`
 
+	Loads []float64 `json:"loads"`
 	// rolling statistics, recording some recently added records.
-	RollingByteRate *movingaverage.TimeMedian
-	RollingKeyRate  *movingaverage.TimeMedian
+	RollingLoads []*movingaverage.TimeMedian
 
 	// LastUpdateTime used to calculate average write
 	LastUpdateTime time.Time `json:"last_update_time"`
@@ -60,15 +59,7 @@ func (stat *HotPeerStat) ID() uint64 {
 
 // Less compares two HotPeerStat.Implementing TopNItem.
 func (stat *HotPeerStat) Less(k int, than TopNItem) bool {
-	rhs := than.(*HotPeerStat)
-	switch k {
-	case keyDim:
-		return stat.GetKeyRate() < rhs.GetKeyRate()
-	case byteDim:
-		fallthrough
-	default:
-		return stat.GetByteRate() < rhs.GetByteRate()
-	}
+	return stat.GetLoad(k) < than.(*HotPeerStat).GetLoad(k)
 }
 
 // IsNeedDelete to delete the item in cache.
@@ -86,28 +77,21 @@ func (stat *HotPeerStat) IsNew() bool {
 	return stat.isNew
 }
 
-// GetByteRate returns denoised BytesRate if possible.
-func (stat *HotPeerStat) GetByteRate() float64 {
-	if stat.RollingByteRate == nil {
-		return stat.ByteRate
+// GetLoad returns denoised load if possible.
+func (stat *HotPeerStat) GetLoad(i int) float64 {
+	if len(stat.RollingLoads) > i {
+		return stat.RollingLoads[i].Get()
 	}
-	return stat.RollingByteRate.Get()
+	return stat.Loads[i]
 }
 
-// GetKeyRate returns denoised KeysRate if possible.
-func (stat *HotPeerStat) GetKeyRate() float64 {
-	if stat.RollingKeyRate == nil {
-		return stat.KeyRate
-	}
-	return stat.RollingKeyRate.Get()
-}
-
-// Clone clones the HotPeerStat
+// Clone clones the HotPeerStat for hot scheduler.
 func (stat *HotPeerStat) Clone() *HotPeerStat {
 	ret := *stat
-	ret.ByteRate = stat.GetByteRate()
-	ret.RollingByteRate = nil
-	ret.KeyRate = stat.GetKeyRate()
-	ret.RollingKeyRate = nil
+	ret.Loads = make([]float64, DimLen)
+	for i := 0; i < DimLen; i++ {
+		ret.Loads[i] = stat.GetLoad(i) // replace with denoised loads
+	}
+	ret.RollingLoads = nil
 	return &ret
 }

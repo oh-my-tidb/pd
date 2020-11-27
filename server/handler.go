@@ -171,40 +171,22 @@ func (h *Handler) GetHotReadRegions() *statistics.StoreHotPeersInfos {
 	return c.GetHotReadRegions()
 }
 
-// GetHotBytesWriteStores gets all hot write stores stats.
-func (h *Handler) GetHotBytesWriteStores() map[uint64]float64 {
+// GetHotWriteStats gets all hot write stores stats.
+func (h *Handler) GetHotWriteStats() map[uint64][]float64 {
 	rc := h.s.GetRaftCluster()
 	if rc == nil {
 		return nil
 	}
-	return rc.GetStoresBytesWriteStat()
+	return rc.GetStoresWriteStats()
 }
 
-// GetHotBytesReadStores gets all hot write stores stats.
-func (h *Handler) GetHotBytesReadStores() map[uint64]float64 {
+// GetHotReadStats gets all hot write stores stats.
+func (h *Handler) GetHotReadStats() map[uint64][]float64 {
 	rc := h.s.GetRaftCluster()
 	if rc == nil {
 		return nil
 	}
-	return rc.GetStoresBytesReadStat()
-}
-
-// GetHotKeysWriteStores gets all hot write stores stats.
-func (h *Handler) GetHotKeysWriteStores() map[uint64]float64 {
-	rc := h.s.GetRaftCluster()
-	if rc == nil {
-		return nil
-	}
-	return rc.GetStoresKeysWriteStat()
-}
-
-// GetHotKeysReadStores gets all hot write stores stats.
-func (h *Handler) GetHotKeysReadStores() map[uint64]float64 {
-	rc := h.s.GetRaftCluster()
-	if rc == nil {
-		return nil
-	}
-	return rc.GetStoresKeysReadStat()
+	return rc.GetStoresReadStats()
 }
 
 // AddScheduler adds a scheduler.

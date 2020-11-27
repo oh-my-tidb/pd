@@ -524,8 +524,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 	c.core.PutStore(newStore)
 	c.storesStats.Observe(newStore.GetID(), newStore.GetStoreStats())
-	c.storesStats.UpdateTotalBytesRate(c.core.GetStores)
-	c.storesStats.UpdateTotalKeysRate(c.core.GetStores)
+	c.storesStats.UpdateTotalLoad(c.core.GetStores())
 	c.storesStats.FilterUnhealthyStore(c)
 
 	// c.limiter is nil before "start" is called
@@ -1427,32 +1426,18 @@ func (c *RaftCluster) isPrepared() bool {
 	return c.prepareChecker.check(c)
 }
 
-// GetStoresBytesWriteStat returns the bytes write stat of all StoreInfo.
-func (c *RaftCluster) GetStoresBytesWriteStat() map[uint64]float64 {
+// GetStoresReadStats returns read load stats of all StoreInfo.
+func (c *RaftCluster) GetStoresReadStats() map[uint64][]float64 {
 	c.RLock()
 	defer c.RUnlock()
-	return c.storesStats.GetStoresBytesWriteStat()
+	return c.storesStats.GetStoresReadLoads()
 }
 
-// GetStoresBytesReadStat returns the bytes read stat of all StoreInfo.
-func (c *RaftCluster) GetStoresBytesReadStat() map[uint64]float64 {
+// GetStoresWriteStats returns load load stats of all StoreInfo.
+func (c *RaftCluster) GetStoresWriteStats() map[uint64][]float64 {
 	c.RLock()
 	defer c.RUnlock()
-	return c.storesStats.GetStoresBytesReadStat()
-}
-
-// GetStoresKeysWriteStat returns the bytes write stat of all StoreInfo.
-func (c *RaftCluster) GetStoresKeysWriteStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresKeysWriteStat()
-}
-
-// GetStoresKeysReadStat returns the bytes read stat of all StoreInfo.
-func (c *RaftCluster) GetStoresKeysReadStat() map[uint64]float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.storesStats.GetStoresKeysReadStat()
+	return c.storesStats.GetStoresWriteLoads()
 }
 
 // RegionReadStats returns hot region's read stats.
