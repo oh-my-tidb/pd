@@ -37,11 +37,11 @@ const (
 
 var (
 	minHotThresholds = [2][]float64{
-		WriteFlow: {
+		PeerCache: {
 			ByteDim: 1 * 1024,
 			KeyDim:  32,
 		},
-		ReadFlow: {
+		LeaderCache: {
 			ByteDim: 8 * 1024,
 			KeyDim:  128,
 		},
@@ -50,13 +50,13 @@ var (
 
 // hotPeerCache saves the hot peer's statistics.
 type hotPeerCache struct {
-	kind           FlowKind
+	kind           HotCacheKind
 	peersOfStore   map[uint64]*TopN               // storeID -> hot peers
 	storesOfRegion map[uint64]map[uint64]struct{} // regionID -> storeIDs
 }
 
 // NewHotStoresStats creates a HotStoresStats
-func NewHotStoresStats(kind FlowKind) *hotPeerCache {
+func NewHotStoresStats(kind HotCacheKind) *hotPeerCache {
 	return &hotPeerCache{
 		kind:           kind,
 		peersOfStore:   make(map[uint64]*TopN),
@@ -110,11 +110,11 @@ func (f *hotPeerCache) collectRegionMetrics(loads []float64, interval uint64) {
 	if interval == 0 {
 		return
 	}
-	if f.kind == ReadFlow {
+	if f.kind == LeaderCache {
 		readByteHist.Observe(loads[ByteDim])
 		readKeyHist.Observe(loads[KeyDim])
 	}
-	if f.kind == WriteFlow {
+	if f.kind == PeerCache {
 		writeByteHist.Observe(loads[ByteDim])
 		writeKeyHist.Observe(loads[KeyDim])
 	}
@@ -184,9 +184,9 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 
 func (f *hotPeerCache) IsRegionHot(region *core.RegionInfo, hotDegree int) bool {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return f.isRegionHotWithAnyPeers(region, hotDegree)
-	case ReadFlow:
+	case LeaderCache:
 		return f.isRegionHotWithPeer(region, region.GetLeader(), hotDegree)
 	}
 	return false
@@ -206,9 +206,9 @@ func (f *hotPeerCache) CollectMetrics(typ string) {
 
 func (f *hotPeerCache) getRegionBytes(region *core.RegionInfo) uint64 {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return region.GetBytesWritten()
-	case ReadFlow:
+	case LeaderCache:
 		return region.GetBytesRead()
 	}
 	return 0
@@ -216,9 +216,9 @@ func (f *hotPeerCache) getRegionBytes(region *core.RegionInfo) uint64 {
 
 func (f *hotPeerCache) getRegionKeys(region *core.RegionInfo) uint64 {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return region.GetKeysWritten()
-	case ReadFlow:
+	case LeaderCache:
 		return region.GetKeysRead()
 	}
 	return 0
@@ -235,9 +235,9 @@ func (f *hotPeerCache) getOldHotPeerStat(regionID, storeID uint64) *HotPeerStat 
 
 func (f *hotPeerCache) isRegionExpired(region *core.RegionInfo, storeID uint64) bool {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return region.GetStorePeer(storeID) == nil
-	case ReadFlow:
+	case LeaderCache:
 		return region.GetLeader().GetStoreId() != storeID
 	}
 	return false
@@ -272,7 +272,7 @@ func (f *hotPeerCache) getAllStoreIDs(region *core.RegionInfo) []uint64 {
 	// new stores
 	for _, peer := range region.GetPeers() {
 		// ReadFlow no need consider the followers.
-		if f.kind == ReadFlow && peer.GetStoreId() != region.GetLeader().GetStoreId() {
+		if f.kind == LeaderCache && peer.GetStoreId() != region.GetLeader().GetStoreId() {
 			continue
 		}
 		if _, ok := storeIDs[peer.GetStoreId()]; !ok {

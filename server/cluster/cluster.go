@@ -797,7 +797,7 @@ func (c *RaftCluster) RandLearnerRegion(storeID uint64, ranges []core.KeyRange, 
 }
 
 // RandHotRegionFromStore randomly picks a hot region in specified store.
-func (c *RaftCluster) RandHotRegionFromStore(store uint64, kind statistics.FlowKind) *core.RegionInfo {
+func (c *RaftCluster) RandHotRegionFromStore(store uint64, kind statistics.HotCacheKind) *core.RegionInfo {
 	c.RLock()
 	defer c.RUnlock()
 	r := c.hotSpotCache.RandHotRegionFromStore(store, kind, c.opt.GetHotRegionCacheHitsThreshold())
@@ -1443,13 +1443,13 @@ func (c *RaftCluster) GetStoresWriteStats() map[uint64][]float64 {
 // RegionReadStats returns hot region's read stats.
 func (c *RaftCluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
 	// RegionStats is a thread-safe method
-	return c.hotSpotCache.RegionStats(statistics.ReadFlow)
+	return c.hotSpotCache.RegionStats(statistics.LeaderCache)
 }
 
 // RegionWriteStats returns hot region's write stats.
 func (c *RaftCluster) RegionWriteStats() map[uint64][]*statistics.HotPeerStat {
 	// RegionStats is a thread-safe method
-	return c.hotSpotCache.RegionStats(statistics.WriteFlow)
+	return c.hotSpotCache.RegionStats(statistics.PeerCache)
 }
 
 // CheckWriteStatus checks the write status, returns whether need update statistics and item.

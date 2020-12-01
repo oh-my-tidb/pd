@@ -37,7 +37,7 @@ type HotPeerStat struct {
 	// AntiCount used to eliminate some noise when remove region in cache
 	AntiCount int `json:"anti_count"`
 
-	Kind FlowKind `json:"kind"`
+	Kind HotCacheKind `json:"kind"`
 
 	Loads []float64 `json:"loads"`
 	// rolling statistics, recording some recently added records.

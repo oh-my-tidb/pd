@@ -22,5 +22,5 @@ type RegionStatInformer interface {
 	RegionWriteStats() map[uint64][]*HotPeerStat
 	// RegionReadStats return the storeID -> read stat of peers on this store
 	RegionReadStats() map[uint64][]*HotPeerStat
-	RandHotRegionFromStore(store uint64, kind FlowKind) *core.RegionInfo
+	RandHotRegionFromStore(store uint64, kind HotCacheKind) *core.RegionInfo
 }

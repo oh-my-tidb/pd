@@ -25,35 +25,35 @@ var Denoising = true
 
 // HotCache is a cache hold hot regions.
 type HotCache struct {
-	writeFlow *hotPeerCache
-	readFlow  *hotPeerCache
+	peerCache   *hotPeerCache
+	leaderCache *hotPeerCache
 }
 
 // NewHotCache creates a new hot spot cache.
 func NewHotCache() *HotCache {
 	return &HotCache{
-		writeFlow: NewHotStoresStats(WriteFlow),
-		readFlow:  NewHotStoresStats(ReadFlow),
+		peerCache:   NewHotStoresStats(PeerCache),
+		leaderCache: NewHotStoresStats(LeaderCache),
 	}
 }
 
 // CheckWrite checks the write status, returns update items.
 func (w *HotCache) CheckWrite(region *core.RegionInfo) []*HotPeerStat {
-	return w.writeFlow.CheckRegionFlow(region)
+	return w.peerCache.CheckRegionFlow(region)
 }
 
 // CheckRead checks the read status, returns update items.
 func (w *HotCache) CheckRead(region *core.RegionInfo) []*HotPeerStat {
-	return w.readFlow.CheckRegionFlow(region)
+	return w.leaderCache.CheckRegionFlow(region)
 }
 
 // Update updates the cache.
 func (w *HotCache) Update(item *HotPeerStat) {
 	switch item.Kind {
-	case WriteFlow:
-		w.writeFlow.Update(item)
-	case ReadFlow:
-		w.readFlow.Update(item)
+	case PeerCache:
+		w.peerCache.Update(item)
+	case LeaderCache:
+		w.leaderCache.Update(item)
 	}
 
 	if item.IsNeedDelete() {
@@ -66,18 +66,18 @@ func (w *HotCache) Update(item *HotPeerStat) {
 }
 
 // RegionStats returns hot items according to kind
-func (w *HotCache) RegionStats(kind FlowKind) map[uint64][]*HotPeerStat {
+func (w *HotCache) RegionStats(kind HotCacheKind) map[uint64][]*HotPeerStat {
 	switch kind {
-	case WriteFlow:
-		return w.writeFlow.RegionStats()
-	case ReadFlow:
-		return w.readFlow.RegionStats()
+	case PeerCache:
+		return w.peerCache.RegionStats()
+	case LeaderCache:
+		return w.leaderCache.RegionStats()
 	}
 	return nil
 }
 
 // RandHotRegionFromStore random picks a hot region in specify store.
-func (w *HotCache) RandHotRegionFromStore(storeID uint64, kind FlowKind, hotDegree int) *HotPeerStat {
+func (w *HotCache) RandHotRegionFromStore(storeID uint64, kind HotCacheKind, hotDegree int) *HotPeerStat {
 	if stats, ok := w.RegionStats(kind)[storeID]; ok {
 		for _, i := range rand.Perm(len(stats)) {
 			if stats[i].HotDegree >= hotDegree {
@@ -90,14 +90,19 @@ func (w *HotCache) RandHotRegionFromStore(storeID uint64, kind FlowKind, hotDegr
 
 // IsRegionHot checks if the region is hot.
 func (w *HotCache) IsRegionHot(region *core.RegionInfo, hotDegree int) bool {
-	return w.writeFlow.IsRegionHot(region, hotDegree) ||
-		w.readFlow.IsRegionHot(region, hotDegree)
+	return w.peerCache.IsRegionHot(region, hotDegree) ||
+		w.leaderCache.IsRegionHot(region, hotDegree)
 }
 
 // CollectMetrics collects the hot cache metrics.
 func (w *HotCache) CollectMetrics() {
-	w.writeFlow.CollectMetrics("write")
-	w.readFlow.CollectMetrics("read")
+	w.peerCache.CollectMetrics(w.peerCache.kind.String())
+	w.peerCache.CollectMetrics(w.leaderCache.kind.String())
+
+	// backward compatibility.
+	// TODO: remove.
+	w.peerCache.CollectMetrics("write")
+	w.leaderCache.CollectMetrics("read")
 }
 
 // ResetMetrics resets the hot cache metrics.
@@ -105,23 +110,27 @@ func (w *HotCache) ResetMetrics() {
 	hotCacheStatusGauge.Reset()
 }
 
-func (w *HotCache) incMetrics(name string, storeID uint64, kind FlowKind) {
+func (w *HotCache) incMetrics(name string, storeID uint64, kind HotCacheKind) {
 	store := storeTag(storeID)
+	hotCacheStatusGauge.WithLabelValues(name, store, kind.String()).Inc()
+
+	// backward compatibility.
+	// TODO: remove.
 	switch kind {
-	case WriteFlow:
+	case PeerCache:
 		hotCacheStatusGauge.WithLabelValues(name, store, "write").Inc()
-	case ReadFlow:
+	case LeaderCache:
 		hotCacheStatusGauge.WithLabelValues(name, store, "read").Inc()
 	}
 }
 
 // GetFilledPeriod returns filled period.
-func (w *HotCache) GetFilledPeriod(kind FlowKind) int {
+func (w *HotCache) GetFilledPeriod(kind HotCacheKind) int {
 	switch kind {
-	case WriteFlow:
-		return w.writeFlow.getDefaultTimeMedian().GetFilledPeriod()
-	case ReadFlow:
-		return w.readFlow.getDefaultTimeMedian().GetFilledPeriod()
+	case PeerCache:
+		return w.peerCache.getDefaultTimeMedian().GetFilledPeriod()
+	case LeaderCache:
+		return w.leaderCache.getDefaultTimeMedian().GetFilledPeriod()
 	}
 	return 0
 }

@@ -658,11 +658,11 @@ func (s *testHotReadRegionSchedulerSuite) TestByteRateOnly(c *C) {
 	c.Assert(tc.IsRegionHot(tc.GetRegion(1)), IsTrue)
 	c.Assert(tc.IsRegionHot(tc.GetRegion(11)), IsFalse)
 	// check randomly pick hot region
-	r := tc.RandHotRegionFromStore(2, statistics.ReadFlow)
+	r := tc.RandHotRegionFromStore(2, statistics.LeaderCache)
 	c.Assert(r, NotNil)
 	c.Assert(r.GetID(), Equals, uint64(2))
 	// check hot items
-	stats := tc.HotCache.RegionStats(statistics.ReadFlow)
+	stats := tc.HotCache.RegionStats(statistics.LeaderCache)
 	c.Assert(len(stats), Equals, 2)
 	for _, ss := range stats {
 		for _, s := range ss {
@@ -885,7 +885,7 @@ func (s *testHotCacheSuite) TestUpdateCache(c *C) {
 		// lower than hot read flow rate, but higher than write flow rate
 		{11, []uint64{1, 2, 3}, 7 * KB, 0},
 	})
-	stats := tc.RegionStats(statistics.ReadFlow)
+	stats := tc.RegionStats(statistics.LeaderCache)
 	c.Assert(len(stats[1]), Equals, 2)
 	c.Assert(len(stats[2]), Equals, 1)
 	c.Assert(len(stats[3]), Equals, 0)
@@ -894,7 +894,7 @@ func (s *testHotCacheSuite) TestUpdateCache(c *C) {
 		{3, []uint64{2, 1, 3}, 20 * KB, 0},
 		{11, []uint64{1, 2, 3}, 7 * KB, 0},
 	})
-	stats = tc.RegionStats(statistics.ReadFlow)
+	stats = tc.RegionStats(statistics.LeaderCache)
 	c.Assert(len(stats[1]), Equals, 1)
 	c.Assert(len(stats[2]), Equals, 2)
 	c.Assert(len(stats[3]), Equals, 0)
@@ -904,7 +904,7 @@ func (s *testHotCacheSuite) TestUpdateCache(c *C) {
 		{5, []uint64{1, 2, 3}, 20 * KB, 0},
 		{6, []uint64{1, 2, 3}, 0.8 * KB, 0},
 	})
-	stats = tc.RegionStats(statistics.WriteFlow)
+	stats = tc.RegionStats(statistics.PeerCache)
 	c.Assert(len(stats[1]), Equals, 2)
 	c.Assert(len(stats[2]), Equals, 2)
 	c.Assert(len(stats[3]), Equals, 2)
@@ -912,7 +912,7 @@ func (s *testHotCacheSuite) TestUpdateCache(c *C) {
 	addRegionInfo(tc, write, []testRegionInfo{
 		{5, []uint64{1, 2, 5}, 20 * KB, 0},
 	})
-	stats = tc.RegionStats(statistics.WriteFlow)
+	stats = tc.RegionStats(statistics.PeerCache)
 
 	c.Assert(len(stats[1]), Equals, 2)
 	c.Assert(len(stats[2]), Equals, 2)
@@ -929,13 +929,13 @@ func (s *testHotCacheSuite) TestKeyThresholds(c *C) {
 			{1, []uint64{1, 2, 3}, 0, 1},
 			{2, []uint64{1, 2, 3}, 0, 1 * KB},
 		})
-		stats := tc.RegionStats(statistics.ReadFlow)
+		stats := tc.RegionStats(statistics.LeaderCache)
 		c.Assert(stats[1], HasLen, 1)
 		addRegionInfo(tc, write, []testRegionInfo{
 			{3, []uint64{4, 5, 6}, 0, 1},
 			{4, []uint64{4, 5, 6}, 0, 1 * KB},
 		})
-		stats = tc.RegionStats(statistics.WriteFlow)
+		stats = tc.RegionStats(statistics.PeerCache)
 		c.Assert(stats[4], HasLen, 1)
 		c.Assert(stats[5], HasLen, 1)
 		c.Assert(stats[6], HasLen, 1)
@@ -958,7 +958,7 @@ func (s *testHotCacheSuite) TestKeyThresholds(c *C) {
 
 		{ // read
 			addRegionInfo(tc, read, regions)
-			stats := tc.RegionStats(statistics.ReadFlow)
+			stats := tc.RegionStats(statistics.LeaderCache)
 			c.Assert(len(stats[1]), Greater, 500)
 
 			// for AntiCount
@@ -966,12 +966,12 @@ func (s *testHotCacheSuite) TestKeyThresholds(c *C) {
 			addRegionInfo(tc, read, regions)
 			addRegionInfo(tc, read, regions)
 			addRegionInfo(tc, read, regions)
-			stats = tc.RegionStats(statistics.ReadFlow)
+			stats = tc.RegionStats(statistics.LeaderCache)
 			c.Assert(len(stats[1]), Equals, 500)
 		}
 		{ // write
 			addRegionInfo(tc, write, regions)
-			stats := tc.RegionStats(statistics.WriteFlow)
+			stats := tc.RegionStats(statistics.PeerCache)
 			c.Assert(len(stats[1]), Greater, 500)
 			c.Assert(len(stats[2]), Greater, 500)
 			c.Assert(len(stats[3]), Greater, 500)
@@ -981,7 +981,7 @@ func (s *testHotCacheSuite) TestKeyThresholds(c *C) {
 			addRegionInfo(tc, write, regions)
 			addRegionInfo(tc, write, regions)
 			addRegionInfo(tc, write, regions)
-			stats = tc.RegionStats(statistics.WriteFlow)
+			stats = tc.RegionStats(statistics.PeerCache)
 			c.Assert(len(stats[1]), Equals, 500)
 			c.Assert(len(stats[2]), Equals, 500)
 			c.Assert(len(stats[3]), Equals, 500)
@@ -1004,7 +1004,7 @@ func (s *testHotCacheSuite) TestByteAndKey(c *C) {
 	}
 	{ // read
 		addRegionInfo(tc, read, regions)
-		stats := tc.RegionStats(statistics.ReadFlow)
+		stats := tc.RegionStats(statistics.LeaderCache)
 		c.Assert(len(stats[1]), Equals, 500)
 
 		addRegionInfo(tc, read, []testRegionInfo{
@@ -1013,12 +1013,12 @@ func (s *testHotCacheSuite) TestByteAndKey(c *C) {
 			{10003, []uint64{1, 2, 3}, 10 * KB, 500 * KB},
 			{10004, []uint64{1, 2, 3}, 500 * KB, 500 * KB},
 		})
-		stats = tc.RegionStats(statistics.ReadFlow)
+		stats = tc.RegionStats(statistics.LeaderCache)
 		c.Assert(len(stats[1]), Equals, 503)
 	}
 	{ // write
 		addRegionInfo(tc, write, regions)
-		stats := tc.RegionStats(statistics.WriteFlow)
+		stats := tc.RegionStats(statistics.PeerCache)
 		c.Assert(len(stats[1]), Equals, 500)
 		c.Assert(len(stats[2]), Equals, 500)
 		c.Assert(len(stats[3]), Equals, 500)
@@ -1028,7 +1028,7 @@ func (s *testHotCacheSuite) TestByteAndKey(c *C) {
 			{10003, []uint64{1, 2, 3}, 10 * KB, 500 * KB},
 			{10004, []uint64{1, 2, 3}, 500 * KB, 500 * KB},
 		})
-		stats = tc.RegionStats(statistics.WriteFlow)
+		stats = tc.RegionStats(statistics.PeerCache)
 		c.Assert(len(stats[1]), Equals, 503)
 		c.Assert(len(stats[2]), Equals, 503)
 		c.Assert(len(stats[3]), Equals, 503)

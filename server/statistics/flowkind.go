@@ -13,21 +13,21 @@
 
 package statistics
 
-// FlowKind is a identify Flow types.
-type FlowKind uint32
+// HotCacheKind is a identify HotCache types.
+type HotCacheKind int
 
-// Flags for flow.
+// Flags for hotCache.
 const (
-	WriteFlow FlowKind = iota
-	ReadFlow
+	PeerCache HotCacheKind = iota
+	LeaderCache
 )
 
-func (k FlowKind) String() string {
+func (k HotCacheKind) String() string {
 	switch k {
-	case WriteFlow:
-		return "write"
-	case ReadFlow:
-		return "read"
+	case PeerCache:
+		return "peer"
+	case LeaderCache:
+		return "leader"
 	}
 	return "unimplemented"
 }
