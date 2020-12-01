@@ -31,3 +31,41 @@ func (k HotCacheKind) String() string {
 	}
 	return "unimplemented"
 }
+
+// RegionStats returns region statistics kinds that corresponding cache interests.
+func (k HotCacheKind) RegionStats() []RegionStatKind {
+	switch k {
+	case PeerCache:
+		return []RegionStatKind{RegionWriteBytes, RegionWriteKeys}
+	case LeaderCache:
+		return []RegionStatKind{RegionReadBytes, RegionReadKeys}
+	}
+	return nil
+}
+
+// RegionStatKind represents the statistics type of region.
+type RegionStatKind int
+
+// Different region statistics kinds.
+const (
+	RegionReadBytes RegionStatKind = iota
+	RegionReadKeys
+	RegionWriteBytes
+	RegionWriteKeys
+
+	RegionStatCount
+)
+
+func (k RegionStatKind) String() string {
+	switch k {
+	case RegionReadBytes:
+		return "read_bytes"
+	case RegionReadKeys:
+		return "read_keys"
+	case RegionWriteBytes:
+		return "write_bytes"
+	case RegionWriteKeys:
+		return "write_keys"
+	}
+	return "unknown RegionStatKind"
+}

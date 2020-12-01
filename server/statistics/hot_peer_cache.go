@@ -35,18 +35,12 @@ const (
 	hotRegionAntiCount = 2
 )
 
-var (
-	minHotThresholds = [2][]float64{
-		PeerCache: {
-			ByteDim: 1 * 1024,
-			KeyDim:  32,
-		},
-		LeaderCache: {
-			ByteDim: 8 * 1024,
-			KeyDim:  128,
-		},
-	}
-)
+var minHotThresholds = [RegionStatCount]float64{
+	RegionWriteBytes: 1 * 1024,
+	RegionWriteKeys:  32,
+	RegionReadBytes:  8 * 1024,
+	RegionReadKeys:   128,
+}
 
 // hotPeerCache saves the hot peer's statistics.
 type hotPeerCache struct {
@@ -91,7 +85,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 	} else {
 		peers, ok := f.peersOfStore[item.StoreID]
 		if !ok {
-			peers = NewTopN(DimLen, topNN, topNTTL)
+			peers = NewTopN(len(f.kind.RegionStats()), topNN, topNTTL)
 			f.peersOfStore[item.StoreID] = peers
 		}
 		peers.Put(item)
@@ -110,13 +104,22 @@ func (f *hotPeerCache) collectRegionMetrics(loads []float64, interval uint64) {
 	if interval == 0 {
 		return
 	}
-	if f.kind == LeaderCache {
-		readByteHist.Observe(loads[ByteDim])
-		readKeyHist.Observe(loads[KeyDim])
+	if len(loads) != len(f.kind.RegionStats()) {
+		return
 	}
-	if f.kind == PeerCache {
-		writeByteHist.Observe(loads[ByteDim])
-		writeKeyHist.Observe(loads[KeyDim])
+
+	statKinds := f.kind.RegionStats()
+	for i, l := range loads {
+		switch statKinds[i] {
+		case RegionReadBytes:
+			readByteHist.Observe(l)
+		case RegionReadKeys:
+			readKeyHist.Observe(l)
+		case RegionWriteBytes:
+			writeByteHist.Observe(l)
+		case RegionWriteKeys:
+			writeKeyHist.Observe(l)
+		}
 	}
 }
 
@@ -125,7 +128,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 	reportInterval := region.GetInterval()
 	interval := reportInterval.GetEndTimestamp() - reportInterval.GetStartTimestamp()
 
-	deltaLoads := []float64{float64(f.getRegionBytes(region)), float64(f.getRegionKeys(region))}
+	deltaLoads := f.getRegionDeltaLoads(region)
 	loads := make([]float64, len(deltaLoads))
 	for i := range deltaLoads {
 		loads[i] = deltaLoads[i] / float64(interval)
@@ -204,22 +207,25 @@ func (f *hotPeerCache) CollectMetrics(typ string) {
 	}
 }
 
-func (f *hotPeerCache) getRegionBytes(region *core.RegionInfo) uint64 {
-	switch f.kind {
-	case PeerCache:
-		return region.GetBytesWritten()
-	case LeaderCache:
-		return region.GetBytesRead()
+func (f *hotPeerCache) getRegionDeltaLoads(region *core.RegionInfo) []float64 {
+	statKinds := f.kind.RegionStats()
+	ret := make([]float64, len(statKinds))
+	for i := range ret {
+		ret[i] = float64(f.getRegionStat(region, statKinds[i]))
 	}
-	return 0
+	return ret
 }
 
-func (f *hotPeerCache) getRegionKeys(region *core.RegionInfo) uint64 {
-	switch f.kind {
-	case PeerCache:
-		return region.GetKeysWritten()
-	case LeaderCache:
+func (f *hotPeerCache) getRegionStat(region *core.RegionInfo, k RegionStatKind) uint64 {
+	switch k {
+	case RegionReadBytes:
+		return region.GetBytesRead()
+	case RegionReadKeys:
 		return region.GetKeysRead()
+	case RegionWriteBytes:
+		return region.GetBytesWritten()
+	case RegionWriteKeys:
+		return region.GetKeysWritten()
 	}
 	return 0
 }
@@ -244,14 +250,18 @@ func (f *hotPeerCache) isRegionExpired(region *core.RegionInfo, storeID uint64) 
 }
 
 func (f *hotPeerCache) calcHotThresholds(storeID uint64) []float64 {
-	minThresholds := minHotThresholds[f.kind]
+	statKinds := f.kind.RegionStats()
+	mins := make([]float64, len(statKinds))
+	for i, k := range statKinds {
+		mins[i] = minHotThresholds[k]
+	}
 	tn, ok := f.peersOfStore[storeID]
 	if !ok || tn.Len() < topNN {
-		return minThresholds
+		return mins
 	}
-	ret := make([]float64, DimLen)
-	for i := 0; i < DimLen; i++ {
-		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, minThresholds[i])
+	ret := make([]float64, len(statKinds))
+	for i := range ret {
+		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, mins[i])
 	}
 	return ret
 }
@@ -271,7 +281,7 @@ func (f *hotPeerCache) getAllStoreIDs(region *core.RegionInfo) []uint64 {
 
 	// new stores
 	for _, peer := range region.GetPeers() {
-		// ReadFlow no need consider the followers.
+		// LeaderCache no need consider the followers.
 		if f.kind == LeaderCache && peer.GetStoreId() != region.GetLeader().GetStoreId() {
 			continue
 		}
