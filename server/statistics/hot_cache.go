@@ -97,7 +97,7 @@ func (w *HotCache) IsRegionHot(region *core.RegionInfo, hotDegree int) bool {
 // CollectMetrics collects the hot cache metrics.
 func (w *HotCache) CollectMetrics() {
 	w.peerCache.CollectMetrics(w.peerCache.kind.String())
-	w.peerCache.CollectMetrics(w.leaderCache.kind.String())
+	w.leaderCache.CollectMetrics(w.leaderCache.kind.String())
 
 	// backward compatibility.
 	// TODO: remove.
