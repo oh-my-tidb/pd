@@ -15,18 +15,23 @@ package statistics
 
 import (
 	"math/rand"
+	"testing"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/server/core"
 )
 
+func TestT(t *testing.T) {
+	TestingT(t)
+}
+
 var _ = Suite(&testHotPeerCache{})
 
 type testHotPeerCache struct{}
 
 func (t *testHotPeerCache) TestStoreTimeUnsync(c *C) {
-	cache := NewHotStoresStats(WriteFlow)
+	cache := NewHotStoresStats(PeerCache)
 	peers := newPeers(3,
 		func(i int) uint64 { return uint64(10000 + i) },
 		func(i int) uint64 { return uint64(i) })
@@ -64,19 +69,19 @@ const (
 )
 
 type testCacheCase struct {
-	kind     FlowKind
+	kind     HotCacheKind
 	operator operator
 	expect   int
 }
 
 func (t *testHotPeerCache) TestCache(c *C) {
 	tests := []*testCacheCase{
-		{ReadFlow, transferLeader, 2},
-		{ReadFlow, movePeer, 1},
-		{ReadFlow, addReplica, 1},
-		{WriteFlow, transferLeader, 3},
-		{WriteFlow, movePeer, 4},
-		{WriteFlow, addReplica, 4},
+		{LeaderCache, transferLeader, 2},
+		{LeaderCache, movePeer, 1},
+		{LeaderCache, addReplica, 1},
+		{PeerCache, transferLeader, 3},
+		{PeerCache, movePeer, 4},
+		{PeerCache, addReplica, 4},
 	}
 	for _, t := range tests {
 		testCache(c, t)
@@ -84,9 +89,9 @@ func (t *testHotPeerCache) TestCache(c *C) {
 }
 
 func testCache(c *C, t *testCacheCase) {
-	defaultSize := map[FlowKind]int{
-		ReadFlow:  1, // only leader
-		WriteFlow: 3, // all peers
+	defaultSize := map[HotCacheKind]int{
+		LeaderCache: 1, // only leader
+		PeerCache:   3, // all peers
 	}
 	cache := NewHotStoresStats(t.kind)
 	region := buildRegion(nil, nil, t.kind)
@@ -110,9 +115,9 @@ func checkAndUpdate(c *C, cache *hotPeerCache, region *core.RegionInfo, expect i
 	return res
 }
 
-func checkHit(c *C, cache *hotPeerCache, region *core.RegionInfo, kind FlowKind, isHit bool) {
+func checkHit(c *C, cache *hotPeerCache, region *core.RegionInfo, kind HotCacheKind, isHit bool) {
 	var peers []*metapb.Peer
-	if kind == ReadFlow {
+	if kind == LeaderCache {
 		peers = []*metapb.Peer{region.GetLeader()}
 	} else {
 		peers = region.GetPeers()
@@ -133,7 +138,7 @@ func checkNeedDelete(c *C, ret []*HotPeerStat, storeID uint64) {
 	}
 }
 
-func schedule(operator operator, region *core.RegionInfo, kind FlowKind) (srcStore uint64, _ *core.RegionInfo) {
+func schedule(operator operator, region *core.RegionInfo, kind HotCacheKind) (srcStore uint64, _ *core.RegionInfo) {
 	switch operator {
 	case transferLeader:
 		_, newLeader := pickFollower(region)
@@ -169,7 +174,7 @@ func pickFollower(region *core.RegionInfo) (index int, peer *metapb.Peer) {
 	return dst, meta.Peers[dst]
 }
 
-func buildRegion(meta *metapb.Region, leader *metapb.Peer, kind FlowKind) *core.RegionInfo {
+func buildRegion(meta *metapb.Region, leader *metapb.Peer, kind HotCacheKind) *core.RegionInfo {
 	const interval = uint64(60)
 	if meta == nil {
 		peer1 := &metapb.Peer{Id: 1, StoreId: 1}
@@ -187,10 +192,10 @@ func buildRegion(meta *metapb.Region, leader *metapb.Peer, kind FlowKind) *core.
 	}
 
 	switch kind {
-	case ReadFlow:
+	case LeaderCache:
 		return core.NewRegionInfo(meta, leader, core.SetReportInterval(interval),
 			core.SetReadBytes(interval*100*1024))
-	case WriteFlow:
+	case PeerCache:
 		return core.NewRegionInfo(meta, leader, core.SetReportInterval(interval),
 			core.SetWrittenBytes(interval*100*1024))
 	default:

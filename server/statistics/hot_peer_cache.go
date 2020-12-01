@@ -35,30 +35,31 @@ const (
 	hotRegionAntiCount = 2
 )
 
-var (
-	minHotThresholds = [2][]float64{
-		WriteFlow: {
-			ByteDim: 1 * 1024,
-			KeyDim:  32,
-		},
-		ReadFlow: {
-			ByteDim: 8 * 1024,
-			KeyDim:  128,
-		},
-	}
-)
+var minHotThresholds = [RegionStatCount]float64{
+	RegionWriteBytes: 1 * 1024,
+	RegionWriteKeys:  32,
+	RegionReadBytes:  8 * 1024,
+	RegionReadKeys:   128,
+}
+
+var cacheRegionStats = [HotCacheCount][]RegionStatKind{
+	{RegionReadBytes, RegionReadKeys, RegionWriteBytes, RegionWriteKeys},
+	{RegionWriteBytes, RegionWriteKeys},
+}
 
 // hotPeerCache saves the hot peer's statistics.
 type hotPeerCache struct {
-	kind           FlowKind
+	kind           HotCacheKind
+	regionStats    []RegionStatKind
 	peersOfStore   map[uint64]*TopN               // storeID -> hot peers
 	storesOfRegion map[uint64]map[uint64]struct{} // regionID -> storeIDs
 }
 
 // NewHotStoresStats creates a HotStoresStats
-func NewHotStoresStats(kind FlowKind) *hotPeerCache {
+func NewHotStoresStats(kind HotCacheKind) *hotPeerCache {
 	return &hotPeerCache{
 		kind:           kind,
+		regionStats:    cacheRegionStats[kind],
 		peersOfStore:   make(map[uint64]*TopN),
 		storesOfRegion: make(map[uint64]map[uint64]struct{}),
 	}
@@ -91,7 +92,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 	} else {
 		peers, ok := f.peersOfStore[item.StoreID]
 		if !ok {
-			peers = NewTopN(DimLen, topNN, topNTTL)
+			peers = NewTopN(len(f.regionStats), topNN, topNTTL)
 			f.peersOfStore[item.StoreID] = peers
 		}
 		peers.Put(item)
@@ -110,13 +111,20 @@ func (f *hotPeerCache) collectRegionMetrics(loads []float64, interval uint64) {
 	if interval == 0 {
 		return
 	}
-	if f.kind == ReadFlow {
-		readByteHist.Observe(loads[ByteDim])
-		readKeyHist.Observe(loads[KeyDim])
+	if len(loads) != len(f.regionStats) {
+		return
 	}
-	if f.kind == WriteFlow {
-		writeByteHist.Observe(loads[ByteDim])
-		writeKeyHist.Observe(loads[KeyDim])
+	for i, l := range loads {
+		switch f.regionStats[i] {
+		case RegionReadBytes:
+			readByteHist.Observe(l)
+		case RegionReadKeys:
+			readKeyHist.Observe(l)
+		case RegionWriteBytes:
+			writeByteHist.Observe(l)
+		case RegionWriteKeys:
+			writeKeyHist.Observe(l)
+		}
 	}
 }
 
@@ -125,7 +133,7 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 	reportInterval := region.GetInterval()
 	interval := reportInterval.GetEndTimestamp() - reportInterval.GetStartTimestamp()
 
-	deltaLoads := []float64{float64(f.getRegionBytes(region)), float64(f.getRegionKeys(region))}
+	deltaLoads := f.getRegionDeltaLoads(region)
 	loads := make([]float64, len(deltaLoads))
 	for i := range deltaLoads {
 		loads[i] = deltaLoads[i] / float64(interval)
@@ -184,9 +192,9 @@ func (f *hotPeerCache) CheckRegionFlow(region *core.RegionInfo) (ret []*HotPeerS
 
 func (f *hotPeerCache) IsRegionHot(region *core.RegionInfo, hotDegree int) bool {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return f.isRegionHotWithAnyPeers(region, hotDegree)
-	case ReadFlow:
+	case LeaderCache:
 		return f.isRegionHotWithPeer(region, region.GetLeader(), hotDegree)
 	}
 	return false
@@ -204,22 +212,24 @@ func (f *hotPeerCache) CollectMetrics(typ string) {
 	}
 }
 
-func (f *hotPeerCache) getRegionBytes(region *core.RegionInfo) uint64 {
-	switch f.kind {
-	case WriteFlow:
-		return region.GetBytesWritten()
-	case ReadFlow:
-		return region.GetBytesRead()
+func (f *hotPeerCache) getRegionDeltaLoads(region *core.RegionInfo) []float64 {
+	ret := make([]float64, len(f.regionStats))
+	for i := range ret {
+		ret[i] = float64(f.getRegionStat(region, f.regionStats[i]))
 	}
-	return 0
+	return ret
 }
 
-func (f *hotPeerCache) getRegionKeys(region *core.RegionInfo) uint64 {
-	switch f.kind {
-	case WriteFlow:
-		return region.GetKeysWritten()
-	case ReadFlow:
+func (f *hotPeerCache) getRegionStat(region *core.RegionInfo, k RegionStatKind) uint64 {
+	switch k {
+	case RegionReadBytes:
+		return region.GetBytesRead()
+	case RegionReadKeys:
 		return region.GetKeysRead()
+	case RegionWriteBytes:
+		return region.GetBytesWritten()
+	case RegionWriteKeys:
+		return region.GetKeysWritten()
 	}
 	return 0
 }
@@ -235,23 +245,26 @@ func (f *hotPeerCache) getOldHotPeerStat(regionID, storeID uint64) *HotPeerStat 
 
 func (f *hotPeerCache) isRegionExpired(region *core.RegionInfo, storeID uint64) bool {
 	switch f.kind {
-	case WriteFlow:
+	case PeerCache:
 		return region.GetStorePeer(storeID) == nil
-	case ReadFlow:
+	case LeaderCache:
 		return region.GetLeader().GetStoreId() != storeID
 	}
 	return false
 }
 
 func (f *hotPeerCache) calcHotThresholds(storeID uint64) []float64 {
-	minThresholds := minHotThresholds[f.kind]
+	mt := make([]float64, len(f.regionStats))
+	for i, k := range f.regionStats {
+		mt[i] = minHotThresholds[k]
+	}
 	tn, ok := f.peersOfStore[storeID]
 	if !ok || tn.Len() < topNN {
-		return minThresholds
+		return mt
 	}
-	ret := make([]float64, DimLen)
-	for i := 0; i < DimLen; i++ {
-		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, minThresholds[i])
+	ret := make([]float64, RegionStatCount)
+	for i := 0; i < int(RegionStatCount); i++ {
+		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, mt[i])
 	}
 	return ret
 }
@@ -271,8 +284,8 @@ func (f *hotPeerCache) getAllStoreIDs(region *core.RegionInfo) []uint64 {
 
 	// new stores
 	for _, peer := range region.GetPeers() {
-		// ReadFlow no need consider the followers.
-		if f.kind == ReadFlow && peer.GetStoreId() != region.GetLeader().GetStoreId() {
+		// LeaderCache no need consider the followers.
+		if f.kind == LeaderCache && peer.GetStoreId() != region.GetLeader().GetStoreId() {
 			continue
 		}
 		if _, ok := storeIDs[peer.GetStoreId()]; !ok {

@@ -106,16 +106,16 @@ func (mc *Cluster) IsRegionHot(region *core.RegionInfo) bool {
 
 // RegionReadStats returns hot region's read stats.
 func (mc *Cluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
-	return mc.HotCache.RegionStats(statistics.ReadFlow)
+	return mc.HotCache.RegionStats(statistics.LeaderCache)
 }
 
 // RegionWriteStats returns hot region's write stats.
 func (mc *Cluster) RegionWriteStats() map[uint64][]*statistics.HotPeerStat {
-	return mc.HotCache.RegionStats(statistics.WriteFlow)
+	return mc.HotCache.RegionStats(statistics.PeerCache)
 }
 
 // RandHotRegionFromStore random picks a hot region in specify store.
-func (mc *Cluster) RandHotRegionFromStore(store uint64, kind statistics.FlowKind) *core.RegionInfo {
+func (mc *Cluster) RandHotRegionFromStore(store uint64, kind statistics.HotCacheKind) *core.RegionInfo {
 	r := mc.HotCache.RandHotRegionFromStore(store, kind, mc.GetHotRegionCacheHitsThreshold())
 	if r == nil {
 		return nil
@@ -322,7 +322,7 @@ func (mc *Cluster) AddLeaderRegionWithReadInfo(
 	r = r.Clone(core.SetReadBytes(readBytes))
 	r = r.Clone(core.SetReadKeys(readKeys))
 	r = r.Clone(core.SetReportInterval(reportInterval))
-	num := mc.HotCache.GetFilledPeriod(statistics.ReadFlow)
+	num := mc.HotCache.GetFilledPeriod(statistics.LeaderCache)
 	for i := 0; i < num; i++ {
 		items := mc.HotCache.CheckRead(r)
 		for _, item := range items {
@@ -342,7 +342,7 @@ func (mc *Cluster) AddLeaderRegionWithWriteInfo(
 	r = r.Clone(core.SetWrittenBytes(writtenBytes))
 	r = r.Clone(core.SetWrittenKeys(writtenKeys))
 	r = r.Clone(core.SetReportInterval(reportInterval))
-	num := mc.HotCache.GetFilledPeriod(statistics.WriteFlow)
+	num := mc.HotCache.GetFilledPeriod(statistics.PeerCache)
 	for i := 0; i < num; i++ {
 		items := mc.HotCache.CheckWrite(r)
 		for _, item := range items {
