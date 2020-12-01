@@ -96,8 +96,13 @@ func (w *HotCache) IsRegionHot(region *core.RegionInfo, hotDegree int) bool {
 
 // CollectMetrics collects the hot cache metrics.
 func (w *HotCache) CollectMetrics() {
-	w.peerCache.CollectMetrics("peer")
-	w.leaderCache.CollectMetrics("leader")
+	w.peerCache.CollectMetrics(w.peerCache.kind.String())
+	w.leaderCache.CollectMetrics(w.leaderCache.kind.String())
+
+	// backward compatibility.
+	// TODO: remove.
+	w.peerCache.CollectMetrics("write")
+	w.leaderCache.CollectMetrics("read")
 }
 
 // ResetMetrics resets the hot cache metrics.
@@ -107,11 +112,15 @@ func (w *HotCache) ResetMetrics() {
 
 func (w *HotCache) incMetrics(name string, storeID uint64, kind HotCacheKind) {
 	store := storeTag(storeID)
+	hotCacheStatusGauge.WithLabelValues(name, store, kind.String()).Inc()
+
+	// backward compatibility.
+	// TODO: remove.
 	switch kind {
 	case PeerCache:
-		hotCacheStatusGauge.WithLabelValues(name, store, "peer").Inc()
+		hotCacheStatusGauge.WithLabelValues(name, store, "write").Inc()
 	case LeaderCache:
-		hotCacheStatusGauge.WithLabelValues(name, store, "leader").Inc()
+		hotCacheStatusGauge.WithLabelValues(name, store, "read").Inc()
 	}
 }
 

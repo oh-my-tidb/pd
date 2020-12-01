@@ -1,4 +1,4 @@
-// Copyright 2020 TiKV Project Authors.
+// Copyright 2019 TiKV Project Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,16 +11,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build tools
+package statistics
 
-package tools
+// HotCacheKind is a identify HotCache types.
+type HotCacheKind int
 
-import (
-	_ "github.com/go-playground/overalls"
-	_ "github.com/mgechev/revive"
-	_ "github.com/pingcap/errors/errdoc-gen"
-	_ "github.com/pingcap/failpoint/failpoint-ctl"
-	_ "github.com/sasha-s/go-deadlock"
-	_ "github.com/swaggo/swag/cmd/swag"
-	_ "golang.org/x/tools/cmd/goimports"
+// Flags for hotCache.
+const (
+	PeerCache HotCacheKind = iota
+	LeaderCache
 )
+
+func (k HotCacheKind) String() string {
+	switch k {
+	case PeerCache:
+		return "peer"
+	case LeaderCache:
+		return "leader"
+	}
+	return "unimplemented"
+}
