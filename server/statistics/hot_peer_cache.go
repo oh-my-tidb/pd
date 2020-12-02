@@ -42,11 +42,6 @@ var minHotThresholds = [RegionStatCount]float64{
 	RegionReadKeys:   128,
 }
 
-var cacheRegionStats = [HotCacheCount][]RegionStatKind{
-	{RegionReadBytes, RegionReadKeys, RegionWriteBytes, RegionWriteKeys},
-	{RegionWriteBytes, RegionWriteKeys},
-}
-
 // hotPeerCache saves the hot peer's statistics.
 type hotPeerCache struct {
 	kind           HotCacheKind
@@ -92,7 +87,7 @@ func (f *hotPeerCache) Update(item *HotPeerStat) {
 	} else {
 		peers, ok := f.peersOfStore[item.StoreID]
 		if !ok {
-			peers = NewTopN(len(f.regionStats), topNN, topNTTL)
+			peers = NewTopN(len(f.kind.RegionStats()), topNN, topNTTL)
 			f.peersOfStore[item.StoreID] = peers
 		}
 		peers.Put(item)
@@ -111,11 +106,13 @@ func (f *hotPeerCache) collectRegionMetrics(loads []float64, interval uint64) {
 	if interval == 0 {
 		return
 	}
-	if len(loads) != len(f.regionStats) {
+	if len(loads) != len(f.kind.RegionStats()) {
 		return
 	}
+
+	statKinds := f.kind.RegionStats()
 	for i, l := range loads {
-		switch f.regionStats[i] {
+		switch statKinds[i] {
 		case RegionReadBytes:
 			readByteHist.Observe(l)
 		case RegionReadKeys:
@@ -213,9 +210,10 @@ func (f *hotPeerCache) CollectMetrics(typ string) {
 }
 
 func (f *hotPeerCache) getRegionDeltaLoads(region *core.RegionInfo) []float64 {
-	ret := make([]float64, len(f.regionStats))
+	statKinds := f.kind.RegionStats()
+	ret := make([]float64, len(statKinds))
 	for i := range ret {
-		ret[i] = float64(f.getRegionStat(region, f.regionStats[i]))
+		ret[i] = float64(f.getRegionStat(region, statKinds[i]))
 	}
 	return ret
 }
@@ -254,17 +252,18 @@ func (f *hotPeerCache) isRegionExpired(region *core.RegionInfo, storeID uint64) 
 }
 
 func (f *hotPeerCache) calcHotThresholds(storeID uint64) []float64 {
-	mt := make([]float64, len(f.regionStats))
-	for i, k := range f.regionStats {
-		mt[i] = minHotThresholds[k]
+	statKinds := f.kind.RegionStats()
+	mins := make([]float64, len(statKinds))
+	for i, k := range statKinds {
+		mins[i] = minHotThresholds[k]
 	}
 	tn, ok := f.peersOfStore[storeID]
 	if !ok || tn.Len() < topNN {
-		return mt
+		return mins
 	}
-	ret := make([]float64, RegionStatCount)
-	for i := 0; i < int(RegionStatCount); i++ {
-		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, mt[i])
+	ret := make([]float64, len(statKinds))
+	for i := range ret {
+		ret[i] = math.Max(tn.GetTopNMin(i).(*HotPeerStat).GetLoad(i)*hotThresholdRatio, mins[i])
 	}
 	return ret
 }
