@@ -13,6 +13,65 @@
 
 package statistics
 
+// HotCacheKind identifies HotCache types.
+type HotCacheKind int
+
+// Different hot cache kinds.
+const (
+	PeerCache HotCacheKind = iota
+	LeaderCache
+
+	CacheKindCount
+)
+
+func (k HotCacheKind) String() string {
+	switch k {
+	case PeerCache:
+		return "peer"
+	case LeaderCache:
+		return "leader"
+	}
+	return "unimplemented"
+}
+
+// RegionStats returns region statistics kinds that corresponding cache interests.
+func (k HotCacheKind) RegionStats() []RegionStatKind {
+	switch k {
+	case PeerCache:
+		return []RegionStatKind{RegionWriteBytes, RegionWriteKeys}
+	case LeaderCache:
+		return []RegionStatKind{RegionReadBytes, RegionReadKeys}
+	}
+	return nil
+}
+
+// RegionStatKind represents the statistics type of region.
+type RegionStatKind int
+
+// Different region statistics kinds.
+const (
+	RegionReadBytes RegionStatKind = iota
+	RegionReadKeys
+	RegionWriteBytes
+	RegionWriteKeys
+
+	RegionStatCount
+)
+
+func (k RegionStatKind) String() string {
+	switch k {
+	case RegionReadBytes:
+		return "read_bytes"
+	case RegionReadKeys:
+		return "read_keys"
+	case RegionWriteBytes:
+		return "write_bytes"
+	case RegionWriteKeys:
+		return "write_keys"
+	}
+	return "unknown RegionStatKind"
+}
+
 // StoreStatKind represents the statistics type of store.
 type StoreStatKind int
 
@@ -25,6 +84,14 @@ const (
 	StoreCPUUsage
 	StoreDiskReadRate
 	StoreDiskWriteRate
+
+	// summary of region stats
+	StoreReadBytesSum
+	StoreReadKeysSum
+	StoreWriteBytesSum
+	StoreWriteKeysSum
+	StoreLeaderWriteBytesSum
+	StoreLeaderWriteKeysSum
 
 	StoreStatCount
 )
@@ -45,6 +112,18 @@ func (k StoreStatKind) String() string {
 		return "store_disk_read_rate"
 	case StoreDiskWriteRate:
 		return "store_disk_write_rate"
+	case StoreReadBytesSum:
+		return "store_read_bytes_sum"
+	case StoreReadKeysSum:
+		return "store_read_keys_sum"
+	case StoreWriteBytesSum:
+		return "store_write_bytes_sum"
+	case StoreWriteKeysSum:
+		return "store_write_keys_sum"
+	case StoreLeaderWriteBytesSum:
+		return "store_leader_write_Bytes_sum"
+	case StoreLeaderWriteKeysSum:
+		return "store_leader_write_keys_sum"
 	}
 
 	return "unknown StoreStatKind"

@@ -18,21 +18,23 @@ import (
 	"time"
 
 	"github.com/tikv/pd/pkg/movingaverage"
+	"github.com/tikv/pd/pkg/slice"
 )
 
+// Indicator dims.
 const (
-	byteDim int = iota
-	keyDim
-	dimLen
+	ByteDim int = iota
+	KeyDim
+	DimLen
 )
 
 type dimStat struct {
-	typ         int
+	typ         RegionStatKind
 	Rolling     *movingaverage.TimeMedian  // it's used to statistic hot degree and average speed.
 	LastAverage *movingaverage.AvgOverTime // it's used to obtain the average speed in last second as instantaneous speed.
 }
 
-func newDimStat(typ int) *dimStat {
+func newDimStat(typ RegionStatKind) *dimStat {
 	reportInterval := RegionHeartBeatReportInterval * time.Second
 	return &dimStat{
 		typ:         typ,
@@ -46,8 +48,8 @@ func (d *dimStat) Add(delta float64, interval time.Duration) {
 	d.Rolling.Add(delta, interval)
 }
 
-func (d *dimStat) isHot(thresholds [dimLen]float64) bool {
-	return d.LastAverage.IsFull() && d.LastAverage.Get() >= thresholds[d.typ]
+func (d *dimStat) isHot(threshold float64) bool {
+	return d.LastAverage.IsFull() && d.LastAverage.Get() >= threshold
 }
 
 func (d *dimStat) isFull() bool {
@@ -72,13 +74,11 @@ type HotPeerStat struct {
 	// AntiCount used to eliminate some noise when remove region in cache
 	AntiCount int `json:"anti_count"`
 
-	Kind     FlowKind `json:"-"`
-	ByteRate float64  `json:"flow_bytes"`
-	KeyRate  float64  `json:"flow_keys"`
+	Kind HotCacheKind `json:"kind"`
 
+	Loads []float64 `json:"loads"`
 	// rolling statistics, recording some recently added records.
-	rollingByteRate *dimStat
-	rollingKeyRate  *dimStat
+	rollingLoads []*dimStat
 
 	// LastUpdateTime used to calculate average write
 	LastUpdateTime time.Time `json:"last_update_time"`
@@ -88,7 +88,7 @@ type HotPeerStat struct {
 	isNew              bool
 	justTransferLeader bool
 	interval           uint64
-	thresholds         [dimLen]float64
+	thresholds         []float64
 	peers              []uint64
 }
 
@@ -99,15 +99,7 @@ func (stat *HotPeerStat) ID() uint64 {
 
 // Less compares two HotPeerStat.Implementing TopNItem.
 func (stat *HotPeerStat) Less(k int, than TopNItem) bool {
-	rhs := than.(*HotPeerStat)
-	switch k {
-	case keyDim:
-		return stat.GetKeyRate() < rhs.GetKeyRate()
-	case byteDim:
-		fallthrough
-	default:
-		return stat.GetByteRate() < rhs.GetByteRate()
-	}
+	return stat.GetLoad(RegionStatKind(k)) < than.(*HotPeerStat).GetLoad(RegionStatKind(k))
 }
 
 // IsNeedDelete to delete the item in cache.
@@ -125,42 +117,38 @@ func (stat *HotPeerStat) IsNew() bool {
 	return stat.isNew
 }
 
-// GetByteRate returns denoised BytesRate if possible.
-func (stat *HotPeerStat) GetByteRate() float64 {
-	if stat.rollingByteRate == nil {
-		return math.Round(stat.ByteRate)
+// GetLoad returns denoised load if possible.
+func (stat *HotPeerStat) GetLoad(k RegionStatKind) float64 {
+	if len(stat.rollingLoads) > int(k) {
+		return math.Round(stat.rollingLoads[int(k)].Get())
 	}
-	return math.Round(stat.rollingByteRate.Get())
-}
-
-// GetKeyRate returns denoised KeysRate if possible.
-func (stat *HotPeerStat) GetKeyRate() float64 {
-	if stat.rollingKeyRate == nil {
-		return math.Round(stat.KeyRate)
-	}
-	return math.Round(stat.rollingKeyRate.Get())
+	return math.Round(stat.Loads[int(k)])
 }
 
 // GetThresholds returns thresholds
-func (stat *HotPeerStat) GetThresholds() [dimLen]float64 {
+func (stat *HotPeerStat) GetThresholds() []float64 {
 	return stat.thresholds
 }
 
 // Clone clones the HotPeerStat
 func (stat *HotPeerStat) Clone() *HotPeerStat {
 	ret := *stat
-	ret.ByteRate = stat.GetByteRate()
-	ret.rollingByteRate = nil
-	ret.KeyRate = stat.GetKeyRate()
-	ret.rollingKeyRate = nil
+	ret.Loads = make([]float64, RegionStatCount)
+	for i := RegionStatKind(0); i < RegionStatCount; i++ {
+		ret.Loads[i] = stat.GetLoad(i) // replace with denoised loads
+	}
+	ret.rollingLoads = nil
 	return &ret
 }
 
 func (stat *HotPeerStat) isHot() bool {
-	return stat.rollingByteRate.isHot(stat.thresholds) || stat.rollingKeyRate.isHot(stat.thresholds)
+	return slice.AnyOf(stat.rollingLoads, func(i int) bool {
+		return stat.rollingLoads[i].isHot(stat.thresholds[i])
+	})
 }
 
 func (stat *HotPeerStat) clearLastAverage() {
-	stat.rollingByteRate.clearLastAverage()
-	stat.rollingKeyRate.clearLastAverage()
+	for _, l := range stat.rollingLoads {
+		l.clearLastAverage()
+	}
 }

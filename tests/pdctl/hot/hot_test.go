@@ -83,7 +83,7 @@ func (s *hotTestSuite) TestHot(c *C) {
 		start := uint64(now - statistics.StoreHeartBeatReportInterval*i)
 		end := start + statistics.StoreHeartBeatReportInterval
 		newStats.Interval = &pdpb.TimeInterval{StartTimestamp: start, EndTimestamp: end}
-		rc.GetStoresStats().Observe(ss.GetID(), newStats)
+		rc.GetHotStat().Observe(ss.GetID(), newStats)
 	}
 
 	args := []string{"-u", pdAddr, "hot", "store"}

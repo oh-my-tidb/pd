@@ -26,3 +26,35 @@ func NewHotStat() *HotStat {
 		StoresStats: NewStoresStats(),
 	}
 }
+
+// GetStoresLoads returns all stores loads for scheduling.
+func (s *HotStat) GetStoresLoads(minHotDegree int) map[uint64][]float64 {
+	ret := s.StoresStats.getStoresLoads()
+	peers := s.HotCache.RegionStats(PeerCache, minHotDegree)
+	for id := range ret {
+		ret[id][StoreWriteBytesSum] = 0
+		ret[id][StoreWriteKeysSum] = 0
+		ret[id][StoreLeaderWriteBytesSum] = 0
+		ret[id][StoreLeaderWriteKeysSum] = 0
+		for _, peer := range peers[id] {
+			ret[id][StoreWriteBytesSum] += peer.GetLoad(RegionWriteBytes)
+			ret[id][StoreWriteKeysSum] += peer.GetLoad(RegionWriteKeys)
+			if peer.isLeader {
+				ret[id][StoreLeaderWriteBytesSum] += peer.GetLoad(RegionWriteBytes)
+				ret[id][StoreLeaderWriteKeysSum] += peer.GetLoad(RegionWriteKeys)
+			}
+		}
+	}
+
+	leaders := s.HotCache.RegionStats(LeaderCache, minHotDegree)
+	for id := range ret {
+		ret[id][StoreReadBytesSum] = 0
+		ret[id][StoreReadKeysSum] = 0
+		for _, leader := range leaders[id] {
+			ret[id][StoreReadBytesSum] += leader.GetLoad(RegionReadBytes)
+			ret[id][StoreReadKeysSum] += leader.GetLoad(RegionReadKeys)
+
+		}
+	}
+	return ret
+}
