@@ -79,15 +79,15 @@ func (l *RegionLabeler) adjustRule(rule *LabelRule) error {
 	case KeyRange:
 		data, ok := rule.Rule.(map[string]interface{})
 		if !ok {
-			return errs.ErrRegionRuleContent.FastGenByArgs("invalid rule type: ", reflect.TypeOf(rule.Rule))
+			return errs.ErrRegionRuleContent.FastGenByArgs(fmt.Sprintf("invalid rule type: %T", reflect.TypeOf(rule.Rule)))
 		}
 		startKey, ok := data["start_key"].(string)
 		if !ok {
-			return errs.ErrRegionRuleContent.FastGenByArgs("invalid startKey type: ", reflect.TypeOf(data["start_key"]))
+			return errs.ErrRegionRuleContent.FastGenByArgs(fmt.Sprintf("invalid startKey type: %T", reflect.TypeOf(data["start_key"])))
 		}
 		endKey, ok := data["end_key"].(string)
 		if !ok {
-			return errs.ErrRegionRuleContent.FastGenByArgs("invalid endKey type: ", reflect.TypeOf(data["end_key"]))
+			return errs.ErrRegionRuleContent.FastGenByArgs(fmt.Sprintf("invalid endKey type: %T", reflect.TypeOf(data["end_key"])))
 		}
 		var r KeyRangeRule
 		r.StartKeyHex, r.EndKeyHex = startKey, endKey
