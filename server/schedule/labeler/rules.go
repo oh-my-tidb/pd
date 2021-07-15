@@ -37,7 +37,7 @@ type LabelRule struct {
 func (r *LabelRule) IsMatch(region *core.RegionInfo) bool {
 	switch r.RuleType {
 	case KeyRange:
-		return r.IsMatch(region)
+		return r.Rule.(*KeyRangeRule).IsMatch(region)
 	}
 	return false
 }

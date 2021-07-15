@@ -87,6 +87,7 @@ func (h *regionLabelHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.rd.JSON(w, http.StatusInternalServerError, err.Error())
 		}
+		return
 	}
 	h.rd.JSON(w, http.StatusOK, "Update region label rule successfully.")
 }

@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/pingcap/log"
@@ -76,12 +77,20 @@ func (l *RegionLabeler) loadRules() error {
 func (l *RegionLabeler) adjustRule(rule *LabelRule) error {
 	switch rule.RuleType {
 	case KeyRange:
-		data, ok := rule.Rule.(map[string]string)
+		data, ok := rule.Rule.(map[string]interface{})
 		if !ok {
-			return errs.ErrRegionRuleContent.FastGenByArgs("invalid rule type")
+			return errs.ErrRegionRuleContent.FastGenByArgs("invalid rule type: ", reflect.TypeOf(rule.Rule))
+		}
+		startKey, ok := data["start_key"].(string)
+		if !ok {
+			return errs.ErrRegionRuleContent.FastGenByArgs("invalid startKey type: ", reflect.TypeOf(data["start_key"]))
+		}
+		endKey, ok := data["end_key"].(string)
+		if !ok {
+			return errs.ErrRegionRuleContent.FastGenByArgs("invalid endKey type: ", reflect.TypeOf(data["end_key"]))
 		}
 		var r KeyRangeRule
-		r.StartKeyHex, r.EndKeyHex = data["start_key"], data["end_key"]
+		r.StartKeyHex, r.EndKeyHex = startKey, endKey
 		var err error
 		r.StartKey, err = hex.DecodeString(r.StartKeyHex)
 		if err != nil {
@@ -94,8 +103,10 @@ func (l *RegionLabeler) adjustRule(rule *LabelRule) error {
 		if len(r.EndKey) > 0 && bytes.Compare(r.EndKey, r.StartKey) <= 0 {
 			return errs.ErrRegionRuleContent.FastGenByArgs("endKey should be greater than startKey")
 		}
-		rule.Rule = r
+		rule.Rule = &r
+		return nil
 	}
+	log.Error("invalid rule type", zap.String("rule-type", rule.RuleType))
 	return errs.ErrRegionRuleContent.FastGenByArgs(fmt.Sprintf("invalid rule type: %s", rule.RuleType))
 }
 
