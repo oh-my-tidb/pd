@@ -41,11 +41,33 @@ func newRegionLabelHandler(s *server.Server, rd *render.Render) *regionLabelHand
 // @Summary List all label rules of cluster.
 // @Produce json
 // @Success 200 {array} labeler.LabelRule
-// @Router /config/region-label/rule [get]
+// @Router /config/region-label/rules [get]
 func (h *regionLabelHandler) GetAllRules(w http.ResponseWriter, r *http.Request) {
 	cluster := getCluster(r)
 	rules := cluster.GetRegionLabeler().GetAllLabelRules()
 	h.rd.JSON(w, http.StatusOK, rules)
+}
+
+// @Tags region_label
+// @Summary Update region label rules in batch.
+// @Produce json
+// @Success 200 {array} labeler.LabelRulePatch
+// @Router /config/region-label/rules [patch]
+func (h *regionLabelHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	cluster := getCluster(r)
+	var patch labeler.LabelRulePatch
+	if err := apiutil.ReadJSONRespondError(h.rd, w, r.Body, &patch); err != nil {
+		return
+	}
+	if err := cluster.GetRegionLabeler().Patch(patch); err != nil {
+		if errs.ErrRegionRuleContent.Equal(err) || errs.ErrHexDecodingString.Equal(err) {
+			h.rd.JSON(w, http.StatusBadRequest, err.Error())
+		} else {
+			h.rd.JSON(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	h.rd.JSON(w, http.StatusOK, "Update region label rules successfully.")
 }
 
 // @Tags region_label

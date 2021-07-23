@@ -153,6 +153,39 @@ func (l *RegionLabeler) DeleteLabelRule(id string) error {
 	return nil
 }
 
+// Patch updates multiple region rules in a batch.
+func (l *RegionLabeler) Patch(patch LabelRulePatch) error {
+	for _, rule := range patch.SetRules {
+		if err := l.adjustRule(rule); err != nil {
+			return err
+		}
+	}
+
+	// save to storage
+	for _, key := range patch.DeleteRules {
+		if err := l.storage.DeleteRegionRule(key); err != nil {
+			return err
+		}
+	}
+	for _, rule := range patch.SetRules {
+		if err := l.storage.SaveRegionRule(rule.ID, rule); err != nil {
+			return err
+		}
+	}
+
+	// update inmemory states.
+	l.Lock()
+	defer l.Unlock()
+
+	for _, key := range patch.DeleteRules {
+		delete(l.labelRules, key)
+	}
+	for _, rule := range patch.SetRules {
+		l.labelRules[rule.ID] = rule
+	}
+	return nil
+}
+
 // GetRegionLabel returns the label of the region for a key.
 func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) string {
 	l.RLock()

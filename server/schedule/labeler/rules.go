@@ -59,3 +59,9 @@ type KeyRangeRule struct {
 func (r *KeyRangeRule) IsMatch(region *core.RegionInfo) bool {
 	return bytes.Compare(region.GetStartKey(), r.StartKey) >= 0 && bytes.Compare(region.GetEndKey(), r.EndKey) <= 0
 }
+
+// LabelRulePatch is the patch to update the label rules.
+type LabelRulePatch struct {
+	SetRules    []*LabelRule `json:"sets"`
+	DeleteRules []string     `json:"deletes"`
+}
