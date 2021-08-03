@@ -71,6 +71,31 @@ func (h *regionLabelHandler) Patch(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Tags region_label
+// @Summary Get label rules of cluster by ids.
+// @Param body body []string true "IDs of query rules"
+// @Produce json
+// @Success 200 {array} labeler.LabelRule
+// @Failure 404 {string} string "The rule does not exist."
+// @Router /config/region-label/rule/ids [get]
+func (h *regionLabelHandler) GetRulesByIDs(w http.ResponseWriter, r *http.Request) {
+	cluster := getCluster(r)
+	var ids []string
+	if err := apiutil.ReadJSONRespondError(h.rd, w, r.Body, &ids); err != nil {
+		return
+	}
+	rules, err := cluster.GetRegionLabeler().GetLabelRules(ids)
+	if err != nil {
+		if errs.ErrRegionRuleNotFound.Equal(err) {
+			h.rd.JSON(w, http.StatusNotFound, err.Error())
+		} else {
+			h.rd.JSON(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	h.rd.JSON(w, http.StatusOK, rules)
+}
+
+// @Tags region_label
 // @Summary Get label rule of cluster by id.
 // @Param id path string true "Rule Id"
 // @Produce json

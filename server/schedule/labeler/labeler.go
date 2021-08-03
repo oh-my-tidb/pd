@@ -121,6 +121,21 @@ func (l *RegionLabeler) GetAllLabelRules() []*LabelRule {
 	return rules
 }
 
+// GetLabelRules returns the rules that match the given ids.
+func (l *RegionLabeler) GetLabelRules(ids []string) ([]*LabelRule, error) {
+	l.RLock()
+	defer l.RUnlock()
+	rules := make([]*LabelRule, 0, len(ids))
+	for _, id := range ids {
+		if rule, ok := l.labelRules[id]; ok {
+			rules = append(rules, rule)
+		} else {
+			return nil, errs.ErrRegionRuleNotFound.FastGenByArgs(id)
+		}
+	}
+	return rules, nil
+}
+
 // GetLabelRule returns the Rule with the same ID.
 func (l *RegionLabeler) GetLabelRule(id string) *LabelRule {
 	l.RLock()
