@@ -107,6 +107,7 @@ func createRouter(prefix string, svr *server.Server) *mux.Router {
 	clusterRouter.HandleFunc("/config/region-label/rules", regionLabelHandler.GetAllRules).Methods("GET")
 	clusterRouter.HandleFunc("/config/region-label/rules/ids", regionLabelHandler.GetRulesByIDs).Methods("GET")
 	clusterRouter.HandleFunc("/config/region-label/rule/{id}", regionLabelHandler.GetRule).Methods("GET")
+	clusterRouter.HandleFunc("/config/region-label/rule/{id}", regionLabelHandler.DeleteRule).Methods("DELETE")
 	clusterRouter.HandleFunc("/config/region-label/rule", regionLabelHandler.SetRule).Methods("POST")
 	clusterRouter.HandleFunc("/config/region-label/rules", regionLabelHandler.Patch).Methods("PATCH")
 

@@ -114,6 +114,28 @@ func (h *regionLabelHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Tags region_label
+// @Summary Delete label rule of cluster by id.
+// @Param id path string true "Rule Id"
+// @Produce json
+// @Success 200 {string} string "Delete rule successfully."
+// @Failure 404 {string} string "The rule does not exist."
+// @Failure 500 {string} string "PD server failed to proceed the request."
+// @Router /config/region-label/rule/{id} [delete]
+func (h *regionLabelHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
+	cluster := getCluster(r)
+	id := mux.Vars(r)["id"]
+	err := cluster.GetRegionLabeler().DeleteLabelRule(id)
+	if err != nil {
+		if errs.ErrRegionRuleNotFound.Equal(err) {
+			h.rd.JSON(w, http.StatusNotFound, err.Error())
+		} else {
+			h.rd.JSON(w, http.StatusInternalServerError, err.Error())
+		}
+	}
+	h.rd.Text(w, http.StatusOK, "Delete rule successfully.")
+}
+
+// @Tags region_label
 // @Summary Update region label rule of cluster.
 // @Accept json
 // @Param rule body labeler.LabelRule true "Parameters of label rule"
