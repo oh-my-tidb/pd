@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/server/core"
+	"github.com/tikv/pd/server/schedule/rangelist"
 	"go.uber.org/zap"
 )
 
@@ -32,13 +33,14 @@ type RegionLabeler struct {
 	storage *core.Storage
 	sync.RWMutex
 	labelRules map[string]*LabelRule
+	rangeList  rangelist.List // sorted LabelRules of the type `KeyRange`
 }
 
 // NewRegionLabeler creates a Labeler instance.
 func NewRegionLabeler(storage *core.Storage) (*RegionLabeler, error) {
 	l := &RegionLabeler{
 		storage:    storage,
-		labelRules: map[string]*LabelRule{},
+		labelRules: make(map[string]*LabelRule),
 	}
 
 	if err := l.loadRules(); err != nil {
@@ -71,6 +73,7 @@ func (l *RegionLabeler) loadRules() error {
 			return err
 		}
 	}
+	l.buildRangeList()
 	return nil
 }
 
@@ -108,6 +111,17 @@ func (l *RegionLabeler) adjustRule(rule *LabelRule) error {
 	}
 	log.Error("invalid rule type", zap.String("rule-type", rule.RuleType))
 	return errs.ErrRegionRuleContent.FastGenByArgs(fmt.Sprintf("invalid rule type: %s", rule.RuleType))
+}
+
+func (l *RegionLabeler) buildRangeList() {
+	builder := rangelist.NewBuilder()
+	for _, rule := range l.labelRules {
+		if rule.RuleType == KeyRange {
+			r := rule.Rule.(*KeyRangeRule)
+			builder.AddItem(r.StartKey, r.EndKey, rule)
+		}
+	}
+	l.rangeList = builder.Build()
 }
 
 // GetAllLabelRules returns all the rules.
@@ -154,6 +168,7 @@ func (l *RegionLabeler) SetLabelRule(rule *LabelRule) error {
 		return err
 	}
 	l.labelRules[rule.ID] = rule
+	l.buildRangeList()
 	return nil
 }
 
@@ -165,6 +180,7 @@ func (l *RegionLabeler) DeleteLabelRule(id string) error {
 		return err
 	}
 	delete(l.labelRules, id)
+	l.buildRangeList()
 	return nil
 }
 
@@ -198,6 +214,7 @@ func (l *RegionLabeler) Patch(patch LabelRulePatch) error {
 	for _, rule := range patch.SetRules {
 		l.labelRules[rule.ID] = rule
 	}
+	l.buildRangeList()
 	return nil
 }
 
@@ -205,11 +222,12 @@ func (l *RegionLabeler) Patch(patch LabelRulePatch) error {
 func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) string {
 	l.RLock()
 	defer l.RUnlock()
-	for _, rule := range l.labelRules {
-		if rule.IsMatch(region) {
-			for _, label := range rule.Labels {
-				if label.Key == key {
-					return label.Value
+	// search ranges
+	if i, data := l.rangeList.GetData(region.GetStartKey(), region.GetEndKey()); i != -1 {
+		for _, rule := range data {
+			for _, l := range rule.(*LabelRule).Labels {
+				if l.Key == key {
+					return l.Value
 				}
 			}
 		}
@@ -222,12 +240,13 @@ func (l *RegionLabeler) GetRegionLabels(region *core.RegionInfo) []*RegionLabel 
 	l.RLock()
 	defer l.RUnlock()
 	var result []*RegionLabel
-	for _, rule := range l.labelRules {
-		if rule.IsMatch(region) {
-			for _, label := range rule.Labels {
+	// search ranges
+	if i, data := l.rangeList.GetData(region.GetStartKey(), region.GetEndKey()); i != -1 {
+		for _, rule := range data {
+			for _, l := range rule.(*LabelRule).Labels {
 				result = append(result, &RegionLabel{
-					Key:   label.Key,
-					Value: label.Value,
+					Key:   l.Key,
+					Value: l.Value,
 				})
 			}
 		}
