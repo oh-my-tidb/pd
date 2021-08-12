@@ -78,6 +78,21 @@ func (l *RegionLabeler) loadRules() error {
 }
 
 func (l *RegionLabeler) adjustRule(rule *LabelRule) error {
+	if rule.ID == "" {
+		return errs.ErrRegionRuleContent.FastGenByArgs("empty rule id")
+	}
+	if len(rule.Labels) == 0 {
+		return errs.ErrRegionRuleContent.FastGenByArgs("no region labels")
+	}
+	for _, l := range rule.Labels {
+		if l.Key == "" {
+			return errs.ErrRegionRuleContent.FastGenByArgs("empty region label key")
+		}
+		if l.Value == "" {
+			return errs.ErrRegionRuleContent.FastGenByArgs("empty region label value")
+		}
+	}
+
 	switch rule.RuleType {
 	case KeyRange:
 		data, ok := rule.Rule.(map[string]interface{})
