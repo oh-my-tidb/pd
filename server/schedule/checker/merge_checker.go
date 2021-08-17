@@ -26,6 +26,7 @@ import (
 	"github.com/tikv/pd/pkg/logutil"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
+	"github.com/tikv/pd/server/schedule/labeler"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedule/opt"
 	"github.com/tikv/pd/server/schedule/placement"
@@ -176,6 +177,17 @@ func AllowMerge(cluster opt.Cluster, region *core.RegionInfo, adjacent *core.Reg
 			return false
 		}
 	}
+
+	if cl, ok := cluster.(interface{ GetRegionLabeler() *labeler.RegionLabeler }); ok {
+		l := cl.GetRegionLabeler()
+		if len(l.GetSplitKeys(start, end)) > 0 {
+			return false
+		}
+		if l.GetRegionLabel(region, labeler.NoMerge) != "" || l.GetRegionLabel(adjacent, labeler.NoMerge) != "" {
+			return false
+		}
+	}
+
 	policy := cluster.GetOpts().GetKeyType()
 	switch policy {
 	case core.Table:
