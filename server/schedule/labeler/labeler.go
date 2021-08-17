@@ -253,7 +253,7 @@ func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) stri
 	return ""
 }
 
-// GetRegionLabelsreturns the labels of the region.
+// GetRegionLabels returns the labels of the region.
 func (l *RegionLabeler) GetRegionLabels(region *core.RegionInfo) []*RegionLabel {
 	l.RLock()
 	defer l.RUnlock()
