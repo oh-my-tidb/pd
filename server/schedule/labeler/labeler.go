@@ -195,7 +195,7 @@ func (l *RegionLabeler) SetLabelRule(rule *LabelRule) error {
 	return nil
 }
 
-// DeleteRule removes a LabelRule.
+// DeleteLabelRule removes a LabelRule.
 func (l *RegionLabeler) DeleteLabelRule(id string) error {
 	l.Lock()
 	defer l.Unlock()
