@@ -311,6 +311,8 @@ func getSysProcessCPUTime() float64 {
 	resourceGroupCPUTimeCounter.WithLabelValues("sys").Add(float64(cpuTime.Sys))
 	resourceGroupCPUTimeCounter.WithLabelValues("total").Add(float64(cpuTime.Sys + cpuTime.User))
 
+	log.Info("getCPUTime", zap.Float64("user", float64(cpuTime.User)), zap.Float64("sys", float64(cpuTime.Sys)), zap.Float64("total", float64(cpuTime.Sys+cpuTime.User)))
+
 	return float64(cpuTime.User + cpuTime.Sys)
 }
 
