@@ -82,6 +82,15 @@ var (
 			Name:      "resource_group",
 			Help:      "Counter of token request by every resource group.",
 		}, []string{resourceGroupNameLabel})
+
+	resourceGroupCPUTimeCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: "resource_group",
+			Name:      "cpu_time",
+			Help:      "Counter of cpu time",
+		}, []string{"type"},
+	)
 )
 
 var (
@@ -98,4 +107,5 @@ func init() {
 	prometheus.MustRegister(requestRetryCounter)
 	prometheus.MustRegister(tokenRequestDuration)
 	prometheus.MustRegister(resourceGroupTokenRequestCounter)
+	prometheus.MustRegister(resourceGroupCPUTimeCounter)
 }

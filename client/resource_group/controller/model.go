@@ -307,6 +307,10 @@ func getSysProcessCPUTime() float64 {
 		log.Error("getCPUTime get pid failed", zap.Error(err))
 	}
 
+	resourceGroupCPUTimeCounter.WithLabelValues("user").Add(float64(cpuTime.User))
+	resourceGroupCPUTimeCounter.WithLabelValues("sys").Add(float64(cpuTime.Sys))
+	resourceGroupCPUTimeCounter.WithLabelValues("total").Add(float64(cpuTime.Sys + cpuTime.User))
+
 	return float64(cpuTime.User + cpuTime.Sys)
 }
 
